@@ -5,7 +5,7 @@ import type { PokemonSet } from "pokemon-showdown/dist/sim/teams.js";
 import type { PRNGSeed } from "pokemon-showdown/dist/sim/prng.js";
 import type { ChoiceRequest } from "pokemon-showdown/dist/sim/side.js";
 import { RED_TEAM } from "./red.js";
-import { dailySeeds } from "./seed.js";
+import { dailySeeds, DailySeeds } from "./seed.js";
 import { generateDailyTeam } from "./teamgen.js";
 
 const { BattleStream, getPlayerStreams, Teams } = ps;
@@ -15,9 +15,12 @@ const FORMAT = "gen3customgame";
 const CHOICE_RE = /^(move|switch|team|pass|auto)( |$)/;
 const FIRST_REQUEST_TIMEOUT = 5_000;
 const CHOICE_TIMEOUT = 3_000;
-const SESSION_TTL = 2 * 60 * 60_000;
+
+export type BattlePhase = "battling" | "ended";
 
 export interface BattleSnapshot {
+  /** Where the session is: in progress or over */
+  phase: BattlePhase;
   /** Showdown protocol lines since the previous snapshot */
   lines: string[];
   /** The pending |request| the client must answer, if any */
@@ -27,7 +30,8 @@ export interface BattleSnapshot {
 }
 
 /**
- * One authoritative battle between the human (p1) and Red (p2).
+ * One authoritative battle between the human (p1) and Red (p2), begun with
+ * a chosen lead and bound to a single local date (the "daily").
  *
  * The engine runs entirely in this process. The p1 stream carries exactly
  * what the challenger is allowed to see (fog-of-war filtered protocol lines
@@ -39,45 +43,64 @@ export class BattleSession {
   readonly id: string;
   /** Discord user id of the challenger; only they may drive this battle. */
   readonly ownerId: string;
+  /** Local calendar date (YYYY-MM-DD) this daily belongs to. */
   readonly date: string;
   readonly playerTeam: PokemonSet[];
 
   private stream: InstanceType<typeof BattleStream>;
+  private seeds: DailySeeds;
   private pendingLines: string[] = [];
   private fullLog: string[] = [];
   private currentRequest: ChoiceRequest | null = null;
   private version = 0;
   private waiters: Array<() => void> = [];
   private dead = false;
-  lastTouched = Date.now();
   ended = false;
   winner: string | null = null;
 
-  constructor(ownerId: string, timeZone: string) {
-    const seeds = dailySeeds(timeZone);
+  get phase(): BattlePhase {
+    return this.dead || this.ended ? "ended" : "battling";
+  }
+
+  /**
+   * A session exists only for a begun battle: the lead slot (1-based) is
+   * supplied here, reordered to the front (gens 1-3 lead with team slot 1),
+   * and the engine starts immediately.
+   */
+  constructor(ownerId: string, timeZone: string, leadSlot: number) {
+    if (!Number.isInteger(leadSlot) || leadSlot < 1 || leadSlot > 6) {
+      throw new Error("invalid lead slot");
+    }
+    this.seeds = dailySeeds(timeZone);
     this.id = randomUUID();
     this.ownerId = ownerId;
-    this.date = seeds.date;
-    this.playerTeam = generateDailyTeam(seeds.teamSeed);
+    this.date = this.seeds.date;
+    this.playerTeam = generateDailyTeam(this.seeds.teamSeed);
+    const [lead] = this.playerTeam.splice(leadSlot - 1, 1);
+    this.playerTeam.unshift(lead);
 
     this.stream = new BattleStream();
     const streams = getPlayerStreams(this.stream);
-    const ai = new RandomPlayerAI(streams.p2, { seed: seeds.aiSeed });
+    const ai = new RandomPlayerAI(streams.p2, { seed: this.seeds.aiSeed });
     void ai.start();
 
     this.pump(streams.p1);
     this.drain(streams.omniscient);
+    void this.startEngine();
+  }
 
-    void this.stream.write(
-      `>start ${JSON.stringify({ formatid: FORMAT, seed: seeds.battleSeed })}`
+  /** Feeds the battle its format and both players. */
+  private async startEngine(): Promise<void> {
+    await this.stream.write(
+      `>start ${JSON.stringify({ formatid: FORMAT, seed: this.seeds.battleSeed })}`
     );
-    void this.stream.write(
+    await this.stream.write(
       `>player p1 ${JSON.stringify({
         name: "Challenger",
         team: Teams.pack(this.playerTeam),
       })}`
     );
-    void this.stream.write(
+    await this.stream.write(
       `>player p2 ${JSON.stringify({
         name: "Red",
         team: Teams.pack(RED_TEAM),
@@ -157,12 +180,10 @@ export class BattleSession {
 
   /** Apply a player choice ("move 1", "switch 2", ...) and snapshot. */
   async choose(choice: string): Promise<BattleSnapshot & { error?: string }> {
-    this.lastTouched = Date.now();
     if (this.dead || this.ended) throw new Error("battle already ended");
     if (!CHOICE_RE.test(choice)) throw new Error("invalid choice format");
 
     const baseline = this.version;
-    const before = this.fullLog.length;
     await this.stream.write(`>p1 ${choice}`);
     await this.waitForChange(baseline, CHOICE_TIMEOUT);
 
@@ -180,10 +201,10 @@ export class BattleSession {
   }
 
   snapshot(): BattleSnapshot {
-    this.lastTouched = Date.now();
     const lines = this.pendingLines;
     this.pendingLines = [];
     return {
+      phase: this.phase,
       lines,
       request: this.ended ? null : this.currentRequest,
       ended: this.ended,
@@ -198,6 +219,7 @@ export class BattleSession {
       date: this.date,
       team: this.playerTeam,
       lines: this.fullLog,
+      phase: this.phase,
       request,
       ended,
       winner,
@@ -213,22 +235,46 @@ export class BattleSession {
 }
 
 const sessions = new Map<string, BattleSession>();
-const byOwner = new Map<string, BattleSession>();
+/** userId -> local date -> that day's session (one battle per date) */
+const byOwner = new Map<string, Map<string, BattleSession>>();
+
+/** A user's session for a specific local date, if they have begun one. */
+export function getDailySession(
+  ownerId: string,
+  date: string
+): BattleSession | undefined {
+  return byOwner.get(ownerId)?.get(date);
+}
+
+/** Upper bound on concurrent sessions per user (evicts oldest date). */
+const MAX_SESSIONS_PER_USER = 4;
 
 /**
- * Creates today's battle for the user. Users only ever have one active
- * battle: starting anew silently replaces (and destroys) the previous one.
+ * Begins the user's battle for the given timezone's today, with their chosen
+ * lead. The caller checks getDailySession() first; this always creates a new
+ * session and registers it synchronously, so concurrent begins cannot race.
  */
-export function createSession(ownerId: string, timeZone: string): BattleSession {
-  const previous = byOwner.get(ownerId);
-  if (previous) {
-    previous.destroy();
-    sessions.delete(previous.id);
-    byOwner.delete(ownerId);
-  }
-  const session = new BattleSession(ownerId, timeZone);
+export function createSession(
+  ownerId: string,
+  timeZone: string,
+  leadSlot: number
+): BattleSession {
+  const session = new BattleSession(ownerId, timeZone, leadSlot);
   sessions.set(session.id, session);
-  byOwner.set(ownerId, session);
+  let dated = byOwner.get(ownerId);
+  if (!dated) {
+    dated = new Map();
+    byOwner.set(ownerId, dated);
+  }
+  dated.set(session.date, session);
+  if (dated.size > MAX_SESSIONS_PER_USER) {
+    // ISO dates sort chronologically; evict the oldest
+    const oldest = [...dated.keys()].sort()[0];
+    const evicted = dated.get(oldest)!;
+    dated.delete(oldest);
+    sessions.delete(evicted.id);
+    evicted.destroy();
+  }
   return session;
 }
 
@@ -240,17 +286,3 @@ export function getSessionFor(
   const session = sessions.get(battleId);
   return session?.ownerId === ownerId ? session : undefined;
 }
-
-function sweep(): void {
-  const now = Date.now();
-  for (const [id, session] of sessions) {
-    if (now - session.lastTouched > SESSION_TTL) {
-      session.destroy();
-      sessions.delete(id);
-      byOwner.delete(session.ownerId);
-    }
-  }
-}
-
-const sweeper = setInterval(sweep, 10 * 60_000);
-sweeper.unref();

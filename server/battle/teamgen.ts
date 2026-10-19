@@ -1,6 +1,7 @@
 import ps from "pokemon-showdown";
 import type { PokemonSet } from "pokemon-showdown/dist/sim/teams.js";
 import type { PRNGSeed } from "pokemon-showdown/dist/sim/prng.js";
+import { dailySeeds } from "./seed.js";
 
 const { Teams } = ps;
 
@@ -15,4 +16,13 @@ export function generateDailyTeam(seed: PRNGSeed): PokemonSet[] {
   const team = Teams.generate("gen3randombattle", { seed });
   for (const set of team) set.level = PLAYER_LEVEL;
   return team;
+}
+
+/**
+ * Stateless look at today's daily in the given timezone. Used before the
+ * player commits; creating a session is what consumes the daily.
+ */
+export function dailyPreview(timeZone: string): { date: string; team: PokemonSet[] } {
+  const seeds = dailySeeds(timeZone);
+  return { date: seeds.date, team: generateDailyTeam(seeds.teamSeed) };
 }

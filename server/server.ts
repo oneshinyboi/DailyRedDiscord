@@ -2,8 +2,13 @@ import express from "express";
 import dotenv from "dotenv";
 dotenv.config({ path: "../.env" });
 import { requireDiscordUser } from "./auth.js";
-import { isValidTimeZone } from "./battle/seed.js";
-import { createSession, getSessionFor } from "./battle/session.js";
+import { isValidTimeZone, todayInTimeZone } from "./battle/seed.js";
+import { dailyPreview } from "./battle/teamgen.js";
+import {
+  createSession,
+  getDailySession,
+  getSessionFor,
+} from "./battle/session.js";
 
 const app = express();
 const port = 3001;
@@ -14,22 +19,69 @@ app.use(express.json());
 // All battle routes require a valid Discord access token.
 app.use("/api/battle", requireDiscordUser);
 
-// Start a daily battle. Body: { timeZone?: string } (IANA name, defaults UTC).
-app.post("/api/battle/start", async (req, res) => {
+// Today's state: the user's existing battle for this timezone's date, or a
+// no-commitment preview of today's team (nothing is consumed by this call).
+app.post("/api/battle/start", (req, res) => {
   const { timeZone = "UTC" } = req.body as { timeZone?: string };
   if (!isValidTimeZone(timeZone)) {
     res.status(400).json({ error: "invalid timeZone" });
     return;
   }
-  const session = createSession(req.userId!, timeZone);
-  const { lines, request, ended, winner } = await session.ready();
+  const date = todayInTimeZone(timeZone);
+  const session = getDailySession(req.userId!, date);
+  if (session) {
+    res.json({
+      battleId: session.id,
+      date: session.date,
+      phase: session.phase,
+      team: session.playerTeam,
+      ended: session.ended,
+      winner: session.winner,
+    });
+    return;
+  }
+  res.json({ battleId: null, phase: "preview", ...dailyPreview(timeZone) });
+});
+
+// Commit to the daily: begin today's battle with the chosen lead.
+// Body: { timeZone?: string, slot: 1-6 }. Idempotent per date: if the user
+// already began today's battle (anywhere on the scale of begun..ended), it
+// is returned as-is.
+app.post("/api/battle/begin", async (req, res) => {
+  const { timeZone = "UTC", slot } = req.body as {
+    timeZone?: string;
+    slot?: number;
+  };
+  if (!isValidTimeZone(timeZone)) {
+    res.status(400).json({ error: "invalid timeZone" });
+    return;
+  }
+  if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 1 || slot > 6) {
+    res.status(400).json({ error: "slot must be an integer 1-6" });
+    return;
+  }
+
+  const date = todayInTimeZone(timeZone);
+  const existing = getDailySession(req.userId!, date);
+  if (existing) {
+    res.json({
+      battleId: existing.id,
+      date: existing.date,
+      phase: existing.phase,
+      team: existing.playerTeam,
+      ended: existing.ended,
+      winner: existing.winner,
+    });
+    return;
+  }
+
+  const session = createSession(req.userId!, timeZone, slot);
+  const snapshot = await session.ready();
   res.json({
     battleId: session.id,
     date: session.date,
-    lines,
-    request,
-    ended,
-    winner,
+    team: session.playerTeam,
+    ...snapshot,
   });
 });
 
