@@ -1,32 +1,15 @@
-# React + TypeScript + Vite
+# DailyRedDiscord
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A Discord Activity that simulates a Pokemon battle against Red, in the style of
+[daily-red.com](https://daily-red.com), powered by
+[pokemon-showdown](https://github.com/smogon/pokemon-showdown).
 
-Currently, two official plugins are available:
+## Structure
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `client/` - React + Vite frontend, embedded via the Discord SDK
+- `server/` - Express backend; authoritative battle engine + OAuth token exchange
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+1. `cp example.env .env` and fill in your Discord app credentials
+2. `npm install && npm run dev` in both `client/` and `server/`
