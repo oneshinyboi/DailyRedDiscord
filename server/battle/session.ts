@@ -3,7 +3,13 @@ import ps from "pokemon-showdown";
 import randomPlayerAiModule from "pokemon-showdown/dist/sim/tools/random-player-ai.js";
 import type { PokemonSet } from "pokemon-showdown/dist/sim/teams.js";
 import type { PRNGSeed } from "pokemon-showdown/dist/sim/prng.js";
-import type { ChoiceRequest } from "pokemon-showdown/dist/sim/side.js";
+import type {
+  BattleHistory,
+  BattlePhase,
+  BattleSnapshot,
+  ChoiceRequest,
+  ChoiceResponse,
+} from "@dailyred/shared";
 import { RED_TEAM } from "./red.js";
 import { dailySeeds, DailySeeds } from "./seed.js";
 import { generateDailyTeam } from "./teamgen.js";
@@ -13,20 +19,9 @@ const { RandomPlayerAI } = randomPlayerAiModule;
 
 const FORMAT = "gen3customgame";
 const CHOICE_RE = /^(move|switch|team|pass|auto)( |$)/;
-const FIRST_REQUEST_TIMEOUT = 5_000;
-const CHOICE_TIMEOUT = 3_000;
 
-export type BattlePhase = "battling" | "ended";
-
-export interface BattleSnapshot {
-  /** Where the session is: in progress or over */
-  phase: BattlePhase;
-  /** Showdown protocol lines since the previous snapshot */
-  lines: string[];
-  /** The pending |request| the client must answer, if any */
-  request: ChoiceRequest | null;
-  ended: boolean;
-  winner: string | null;
+function isWaitRequest(request: ChoiceRequest | null): boolean {
+  return request !== null && "wait" in request && request.wait === true;
 }
 
 /**
@@ -82,11 +77,11 @@ export class BattleSession {
     this.stream = new BattleStream();
     const streams = getPlayerStreams(this.stream);
     const ai = new RandomPlayerAI(streams.p2, { seed: this.seeds.aiSeed });
-    void ai.start();
+    void ai.start().catch(() => this.destroy());
 
     this.pump(streams.p1);
     this.drain(streams.omniscient);
-    void this.startEngine();
+    void this.startEngine().catch(() => this.destroy());
   }
 
   /** Feeds the battle its format and both players. */
@@ -163,29 +158,28 @@ export class BattleSession {
     for (const resolve of waiters) resolve();
   }
 
-  private waitForChange(baseline: number, timeout: number): Promise<void> {
+  private waitForNextChange(baseline: number): Promise<void> {
     if (this.version !== baseline || this.ended) return Promise.resolve();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.waiters = this.waiters.filter((w) => w !== done);
-        done();
-      }, timeout);
-      const done = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      this.waiters.push(done);
+      this.waiters.push(resolve);
     });
   }
 
   /** Apply a player choice ("move 1", "switch 2", ...) and snapshot. */
-  async choose(choice: string): Promise<BattleSnapshot & { error?: string }> {
+  async choose(choice: string): Promise<ChoiceResponse> {
     if (this.dead || this.ended) throw new Error("battle already ended");
     if (!CHOICE_RE.test(choice)) throw new Error("invalid choice format");
 
     const baseline = this.version;
     await this.stream.write(`>p1 ${choice}`);
-    await this.waitForChange(baseline, CHOICE_TIMEOUT);
+    await this.waitForNextChange(baseline);
+
+    // Resolving on the first bump can return a wait request (Red's Pokemon
+    // fainted and the AI must switch). The client can't answer those, so keep
+    // waiting until it's the challenger's turn again (or the battle ends).
+    while (!this.ended && isWaitRequest(this.currentRequest)) {
+      await this.waitForNextChange(this.version);
+    }
 
     const snapshot = this.snapshot();
     const errorLine = snapshot.lines.find((l) => l.startsWith("|error|"));
@@ -195,7 +189,7 @@ export class BattleSession {
   /** Wait until the battle has produced its first request (or ended). */
   async ready(): Promise<BattleSnapshot> {
     if (!this.currentRequest && !this.ended) {
-      await this.waitForChange(this.version, FIRST_REQUEST_TIMEOUT);
+      await this.waitForNextChange(this.version);
     }
     return this.snapshot();
   }
@@ -213,7 +207,7 @@ export class BattleSession {
   }
 
   /** Full client-visible history (for reconnects). */
-  history(): { date: string; team: PokemonSet[]; lines: string[] } & BattleSnapshot {
+  history(): BattleHistory {
     const { request, ended, winner } = this.snapshot();
     return {
       date: this.date,
@@ -230,7 +224,7 @@ export class BattleSession {
     this.dead = true;
     this.ended = true;
     this.bump();
-    void this.stream.writeEnd();
+    void this.stream.writeEnd().catch(() => {});
   }
 }
 

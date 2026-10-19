@@ -2,6 +2,12 @@ import express from "express";
 import dotenv from "dotenv";
 dotenv.config({ path: "../.env" });
 import { requireDiscordUser } from "./auth.js";
+import type {
+  BeginResponse,
+  ChoiceResponse,
+  HistoryResponse,
+  StartResponse,
+} from "@dailyred/shared";
 import { isValidTimeZone, todayInTimeZone } from "./battle/seed.js";
 import { dailyPreview } from "./battle/teamgen.js";
 import {
@@ -30,17 +36,23 @@ app.post("/api/battle/start", (req, res) => {
   const date = todayInTimeZone(timeZone);
   const session = getDailySession(req.userId!, date);
   if (session) {
-    res.json({
+    const payload: StartResponse = {
       battleId: session.id,
       date: session.date,
       phase: session.phase,
       team: session.playerTeam,
       ended: session.ended,
       winner: session.winner,
-    });
+    };
+    res.json(payload);
     return;
   }
-  res.json({ battleId: null, phase: "preview", ...dailyPreview(timeZone) });
+  const preview: StartResponse = {
+    battleId: null,
+    phase: "preview",
+    ...dailyPreview(timeZone),
+  };
+  res.json(preview);
 });
 
 // Commit to the daily: begin today's battle with the chosen lead.
@@ -64,25 +76,27 @@ app.post("/api/battle/begin", async (req, res) => {
   const date = todayInTimeZone(timeZone);
   const existing = getDailySession(req.userId!, date);
   if (existing) {
-    res.json({
+    const payload: BeginResponse = {
       battleId: existing.id,
       date: existing.date,
       phase: existing.phase,
       team: existing.playerTeam,
       ended: existing.ended,
       winner: existing.winner,
-    });
+    };
+    res.json(payload);
     return;
   }
 
   const session = createSession(req.userId!, timeZone, slot);
   const snapshot = await session.ready();
-  res.json({
+  const payload: BeginResponse = {
     battleId: session.id,
     date: session.date,
     team: session.playerTeam,
     ...snapshot,
-  });
+  };
+  res.json(payload);
 });
 
 // Submit a choice for the challenger. Body: { choice: "move 1" | "switch 2" | ... }
@@ -98,7 +112,7 @@ app.post("/api/battle/:id/choice", async (req, res) => {
     return;
   }
   try {
-    const result = await session.choose(choice);
+    const result: ChoiceResponse = await session.choose(choice);
     res.json(result);
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "error" });
@@ -112,7 +126,8 @@ app.get("/api/battle/:id", (req, res) => {
     res.status(404).json({ error: "unknown battle" });
     return;
   }
-  res.json({ battleId: session.id, ...session.history() });
+  const payload: HistoryResponse = { battleId: session.id, ...session.history() };
+  res.json(payload);
 });
 
 app.post("/api/token", async (req, res) => {

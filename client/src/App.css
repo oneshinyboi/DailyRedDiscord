@@ -158,21 +158,6 @@
   margin: 0;
 }
 
-.game-header .date {
-  margin: 0;
-}
-
-.link-btn {
-  margin-left: 12px;
-  font: inherit;
-  font-size: 13px;
-  border: none;
-  background: none;
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
 .battle-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

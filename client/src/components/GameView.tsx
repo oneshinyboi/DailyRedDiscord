@@ -10,11 +10,12 @@ import type {
 
 interface GameViewProps {
   token: string;
+  username: string;
   data: GameData;
   note: string | null;
 }
 
-export default function GameView({ token, data, note }: GameViewProps) {
+export default function GameView({ token, username, data, note }: GameViewProps) {
   const [state, setState] = useState<GameData>(data);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,36 +54,36 @@ export default function GameView({ token, data, note }: GameViewProps) {
       .finally(() => setBusy(false));
   };
 
-  const refresh = () => {
-    if (busy) return;
-    fetchBattle(token, state.battleId)
-      .then((history) => {
-        setState({
-          battleId: history.battleId,
-          date: history.date,
-          team: history.team,
-          lines: history.lines,
-          request: history.request,
-          ended: history.ended,
-          winner: history.winner,
-        });
-        setError(null);
-      })
-      .catch((err: unknown) => setError(errorMessage(err)));
-  };
+  useEffect(() => {
+    if (state.ended) return;
+    const waiting =
+      state.request === null ||
+      ("wait" in state.request && state.request.wait);
+    if (!waiting) return;
+    const timer = setTimeout(() => {
+      fetchBattle(token, state.battleId)
+        .then((history) => {
+          setState({
+            battleId: history.battleId,
+            date: history.date,
+            team: history.team,
+            lines: history.lines,
+            request: history.request,
+            ended: history.ended,
+            winner: history.winner,
+          });
+        })
+        .catch((err: unknown) => setError(errorMessage(err)));
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [state, token]);
 
   const result = state.ended ? resultBanner(state.winner) : null;
 
   return (
     <section className="screen game">
       <header className="game-header">
-        <h1>Challenger vs. Red</h1>
-        <p className="date">
-          {state.date}
-          <button type="button" className="link-btn" onClick={refresh}>
-            Refresh
-          </button>
-        </p>
+        <h1>{`${username} vs. Red`}</h1>
       </header>
       {note !== null && <p className="banner banner-note">{note}</p>}
       {result !== null && (

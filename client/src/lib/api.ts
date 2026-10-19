@@ -1,6 +1,6 @@
 import type {
-  BattleSnapshot,
   BeginResponse,
+  ChoiceResponse,
   HistoryResponse,
   StartResponse,
 } from "./types";
@@ -86,6 +86,6 @@ export function sendChoice(
   token: string,
   battleId: string,
   choice: string
-): Promise<BattleSnapshot> {
+): Promise<ChoiceResponse> {
   return api(`/api/battle/${battleId}/choice`, token, "POST", { choice });
 }

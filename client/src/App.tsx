@@ -133,6 +133,7 @@ function App() {
     message: "Authenticating...",
   });
   const [token, setToken] = useState<string | null>(null);
+  const [username, setUsername] = useState("Challenger");
   const [starting, setStarting] = useState(false);
   const [timeZone] = useState(getTimeZone);
 
@@ -182,6 +183,7 @@ function App() {
       .then(({ user, accessToken }) => {
         if (cancelled) return;
         setToken(accessToken);
+        setUsername(user.username);
         boot(`Loading today's team for ${user.username}...`);
         return fetchStart(accessToken, timeZone).then((start) => {
           if (!cancelled) routeStart(accessToken, start, null);
@@ -254,6 +256,7 @@ function App() {
         <GameView
           key={screen.data.battleId}
           token={token}
+          username={username}
           data={screen.data}
           note={screen.note}
         />
