@@ -86,6 +86,18 @@ export async function requireDiscordUser(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  // Local browser development: the client sends "Bearer dev" instead of a
+  // Discord token. Opt-in only, and refused when NODE_ENV=production.
+  if (
+    process.env.DEV_AUTH === "1" &&
+    process.env.NODE_ENV !== "production" &&
+    req.headers.authorization === "Bearer dev"
+  ) {
+    req.userId = "dev-user";
+    next();
+    return;
+  }
+
   try {
     const userId = await getDiscordUser(req.headers.authorization);
     if (!userId) {

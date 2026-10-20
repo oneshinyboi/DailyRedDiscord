@@ -1,5 +1,9 @@
 import { defineConfig } from 'vite';
 
+// VITE_DEV_AUTH is set by `npm run dev:client:local`, which opens the app
+// directly in a browser rather than through Discord's reverse proxy.
+const localDev = process.env.VITE_DEV_AUTH === '1';
+
 // https://vitejs.dev/config/
 export default defineConfig({
   envDir: '../',
@@ -21,7 +25,7 @@ export default defineConfig({
     },
     // HMR runs over the reverse proxy, so the client connects on port 443.
     // Requires the proxy to forward WebSocket upgrades. If it can't, use
-    // `hmr: false` instead.
-    hmr: { clientPort: 443 },
+    // `hmr: false` instead. Direct browser dev uses Vite's normal HMR.
+    hmr: localDev ? undefined : { clientPort: 443 },
   },
 });

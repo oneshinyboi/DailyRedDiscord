@@ -163,4 +163,9 @@ app.post("/api/token", async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}`);
+  if (process.env.DEV_AUTH === "1" && process.env.NODE_ENV !== "production") {
+    console.warn(
+      "DEV_AUTH=1: accepting the local dev token. Never enable this in production."
+    );
+  }
 });

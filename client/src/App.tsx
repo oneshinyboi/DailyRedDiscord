@@ -24,7 +24,32 @@ interface AuthSession {
 
 const NEW_DAY_NOTE = "A new day's team is out - here's your updated squad!";
 
-const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+// The SDK constructor requires Discord's `frame_id` query param and throws
+// outside the Discord client, so only create it when it is actually needed.
+let discordSdkInstance: DiscordSDK | null = null;
+
+function discordSdk(): DiscordSDK {
+  if (discordSdkInstance === null) {
+    discordSdkInstance = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+  }
+  return discordSdkInstance;
+}
+
+// Local browser development bypass. Only active in a Vite dev build when the
+// flag is set, so production bundles can never skip Discord auth.
+const DEV_AUTH = import.meta.env.DEV && import.meta.env.VITE_DEV_AUTH === "1";
+const DEV_ACCESS_TOKEN = "dev";
+const DEV_SESSION: AuthSession = {
+  user: {
+    id: "0",
+    username: "Dev Trainer",
+    discriminator: "0",
+    public_flags: 0,
+    avatar: null,
+    global_name: "Dev Trainer",
+  },
+  accessToken: DEV_ACCESS_TOKEN,
+};
 
 const AUTH_TIMEOUT_MS = 20_000;
 const AUTH_TIMEOUT_MESSAGE =
@@ -49,7 +74,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 async function authenticate(
   onStage?: (message: string) => void
 ): Promise<AuthSession> {
-  const { code } = await discordSdk.commands.authorize({
+  const { code } = await discordSdk().commands.authorize({
     client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
     response_type: "code",
     state: "",
@@ -74,7 +99,7 @@ async function authenticate(
   }
 
   onStage?.("Signing in...");
-  const auth = await discordSdk.commands.authenticate({
+  const auth = await discordSdk().commands.authenticate({
     access_token: body.access_token,
   });
   if (auth == null) {
@@ -89,16 +114,18 @@ function authenticateOnce(
   onStage?: (message: string) => void
 ): Promise<AuthSession> {
   if (authSession === null) {
-    authSession = discordSdk
-      .ready()
-      .then(() => {
-        onStage?.("Authorizing with Discord...");
-        return authenticate(onStage);
-      })
-      .catch((err: unknown) => {
-        authSession = null;
-        throw err;
-      });
+    authSession = DEV_AUTH
+      ? Promise.resolve(DEV_SESSION)
+      : discordSdk()
+          .ready()
+          .then(() => {
+            onStage?.("Authorizing with Discord...");
+            return authenticate(onStage);
+          })
+          .catch((err: unknown) => {
+            authSession = null;
+            throw err;
+          });
   }
   return authSession;
 }
@@ -181,7 +208,7 @@ function App() {
     const boot = (message: string) => {
       if (!cancelled) setScreen({ kind: "boot", message });
     };
-    boot("Connecting to Discord...");
+    boot(DEV_AUTH ? "Starting local dev session..." : "Connecting to Discord...");
     withTimeout(authenticateOnce(boot), AUTH_TIMEOUT_MS, AUTH_TIMEOUT_MESSAGE)
       .then(({ user, accessToken }) => {
         if (cancelled) return;
