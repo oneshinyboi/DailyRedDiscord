@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import Sprite from "./Sprite";
+import { buildBattleView } from "../lib/battle";
 import { buildResult } from "../lib/format";
 import type { GameData } from "../lib/types";
 
@@ -20,6 +22,34 @@ function legacyCopy(text: string): void {
   }
 }
 
+function SpriteRow({
+  title,
+  species,
+  fainted,
+}: {
+  title: string;
+  species: string[];
+  fainted: string[];
+}) {
+  return (
+    <div className="result-side">
+      <h3>{title}</h3>
+      <div className="result-sprites">
+        {species.map((name) => (
+          <span
+            key={name}
+            className={
+              fainted.includes(name) ? "sprite-box small ko" : "sprite-box small"
+            }
+          >
+            <Sprite species={name} />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ResultsScreen({ data }: ResultsScreenProps) {
   const result = buildResult({
     date: data.date,
@@ -28,6 +58,8 @@ export default function ResultsScreen({ data }: ResultsScreenProps) {
     team: data.team,
   });
   const [copied, setCopied] = useState(false);
+  const view = useMemo(() => buildBattleView(data.lines), [data.lines]);
+  const mySpecies = data.team.map((mon) => mon.species);
 
   const copy = () => {
     const done = () => {
@@ -51,7 +83,26 @@ export default function ResultsScreen({ data }: ResultsScreenProps) {
   return (
     <section className="screen results">
       <div className={`result-card result-${result.outcome}`}>
-        <h1 className="result-headline">{result.headline}</h1>
+        <h1 className="result-headline">
+          {result.outcome === "win"
+            ? "You beat Red!"
+            : result.outcome === "loss"
+              ? "Red won today."
+              : "It's a tie."}
+        </h1>
+        <p className="result-stats">{result.headline}</p>
+        <div className="result-teams">
+          <SpriteRow
+            title="Your team"
+            species={mySpecies}
+            fainted={view.p1.faintedSpecies}
+          />
+          <SpriteRow
+            title="Red's team"
+            species={view.p2.roster}
+            fainted={view.p2.faintedSpecies}
+          />
+        </div>
         <p className="result-line">
           <span className="result-icons">{result.icons.join("")}</span>
           <span className="result-stats">{result.stats}</span>

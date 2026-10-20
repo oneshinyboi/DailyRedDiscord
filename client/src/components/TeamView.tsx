@@ -1,19 +1,19 @@
-import { moveOf, typesOf } from "../lib/dex";
-import { displayName } from "../lib/format";
+import { baseStatTotal, moveOf, typesOf } from "../lib/dex";
+import { displayName, pokemonName } from "../lib/format";
 import type { PokemonSet } from "../lib/types";
+import Sprite from "./Sprite";
 
 interface TeamViewProps {
   team: PokemonSet[];
-  selectedSlot?: number | null;
+  /** Click-to-select mode (lead picker). Omit for a read-only list. */
   onSelect?: (slot: number) => void;
+  /** 1-based slot to leave out (the lead shown in the big card). */
+  excludeSlot?: number | null;
+  showMoves?: boolean;
   disabled?: boolean;
 }
 
-function pokemonName(set: PokemonSet): string {
-  return set.name || displayName(set.species);
-}
-
-function TypeBadges({ types }: { types: string[] }) {
+export function TypeBadges({ types }: { types: string[] }) {
   if (types.length === 0) return null;
   return (
     <span className="type-badges">
@@ -26,90 +26,77 @@ function TypeBadges({ types }: { types: string[] }) {
   );
 }
 
+export function MoveList({ moves }: { moves: string[] }) {
+  return (
+    <>
+      {moves.map((move) => {
+        const info = moveOf(move);
+        return (
+          <span key={move}>
+            <span
+              className={`type-dot type-${(info?.type ?? "normal").toLowerCase()}`}
+            />
+            {info?.name ?? displayName(move)}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 export default function TeamView({
   team,
-  selectedSlot = null,
   onSelect,
+  excludeSlot = null,
+  showMoves = false,
   disabled = false,
 }: TeamViewProps) {
   return (
-    <div className="team-view">
-      <div className="team-grid">
-        {team.map((pokemon, index) => {
-          const slot = index + 1;
-          const isLead = onSelect !== undefined && slot === selectedSlot;
-          const card = (
-            <>
-              {isLead && <span className="lead-badge">Lead</span>}
-              <h3>{pokemonName(pokemon)}</h3>
-              <p className="meta">
-                {`Lv. ${pokemon.level ?? 100}${pokemon.item ? ` - ${pokemon.item}` : ""}`}
-              </p>
+    <ul className="team-list">
+      {team.map((pokemon, index) => {
+        const slot = index + 1;
+        if (slot === excludeSlot) return null;
+        const body = (
+          <>
+            <span className="sprite-box small">
+              <Sprite species={pokemon.species} alt={pokemonName(pokemon)} />
+            </span>
+            <span>
+              <h3 className="row-name">{pokemonName(pokemon)}</h3>
               <TypeBadges types={typesOf(pokemon)} />
-            </>
-          );
-          if (onSelect === undefined) {
-            return (
-              <div key={`${slot}-${pokemon.name}`} className="poke-card static">
-                {card}
-              </div>
-            );
-          }
-          return (
-            <button
-              key={`${slot}-${pokemon.name}`}
-              type="button"
-              className={isLead ? "poke-card selected" : "poke-card"}
-              disabled={disabled}
-              onClick={() => onSelect(slot)}
-            >
-              {card}
-            </button>
-          );
-        })}
-      </div>
-      <details className="team-details">
-        <summary>Team details</summary>
-        <ul className="mon-detail-list">
-          {team.map((pokemon, index) => (
-            <li key={`${index}-${pokemon.name}`}>
-              <details className="mon-detail">
-                <summary>
-                  <span className="mon-name">{pokemonName(pokemon)}</span>
-                  <span className="mon-level">{`Lv. ${pokemon.level ?? 100}`}</span>
-                  <TypeBadges types={typesOf(pokemon)} />
-                </summary>
-                <dl className="mon-stats">
-                  <div>
-                    <dt>Ability</dt>
-                    <dd>{pokemon.ability ? pokemon.ability : "Unknown"}</dd>
-                  </div>
-                  <div>
-                    <dt>Item</dt>
-                    <dd>{pokemon.item ? pokemon.item : "No item"}</dd>
-                  </div>
-                  <div>
-                    <dt>Moves</dt>
-                    <dd>
-                      <ul className="move-detail-list">
-                        {pokemon.moves.map((move) => {
-                          const info = moveOf(move);
-                          return (
-                            <li key={move}>
-                              <span>{info?.name ?? displayName(move)}</span>
-                              {info && <TypeBadges types={[info.type]} />}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </dd>
-                  </div>
-                </dl>
-              </details>
-            </li>
-          ))}
-        </ul>
-      </details>
-    </div>
+            </span>
+            <span className="row-items">
+              <span>{pokemon.item ? pokemon.item : "No item"}</span>
+              <span>{pokemon.ability ?? ""}</span>
+            </span>
+            <span className="row-bst">{baseStatTotal(pokemon) || ""}</span>
+            {onSelect !== undefined && (
+              <span className="row-action">Set as lead</span>
+            )}
+            {showMoves && (
+              <span className="row-moves">
+                <MoveList moves={pokemon.moves} />
+              </span>
+            )}
+          </>
+        );
+        return (
+          <li key={`${slot}-${pokemon.species}`}>
+            {onSelect === undefined ? (
+              <div className="team-row">{body}</div>
+            ) : (
+              <button
+                type="button"
+                className="team-row"
+                disabled={disabled}
+                onClick={() => onSelect(slot)}
+              >
+                {body}
+              </button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

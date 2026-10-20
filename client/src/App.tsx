@@ -4,6 +4,7 @@ import "./App.css";
 import GameView from "./components/GameView";
 import MainScreen from "./components/MainScreen";
 import ResultsScreen from "./components/ResultsScreen";
+import SiteHeader from "./components/SiteHeader";
 import { beginBattle, errorMessage, fetchBattle, fetchStart } from "./lib/api";
 import { getTimeZone, localDate } from "./lib/date";
 import type {
@@ -264,6 +265,7 @@ function App() {
 
   return (
     <main className="app">
+      <SiteHeader timeZone={timeZone} />
       {screen.kind === "boot" && <p className="boot">{screen.message}</p>}
       {screen.kind === "error" && (
         <section className="screen error-screen">

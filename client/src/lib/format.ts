@@ -125,6 +125,12 @@ const SKIP = new Set([
   "chat",
   "gametype",
   "teamsize",
+  "poke",
+  "teampreview",
+  "clearpoke",
+  "j",
+  "l",
+  "t:",
   "upkeep",
 ]);
 
@@ -211,4 +217,8 @@ export function formatLogLine(line: string): LogEntry | null {
 
   const rest = args.filter(Boolean).join(" - ");
   return rest === "" ? null : { text: rest };
+}
+
+export function pokemonName(set: PokemonSet): string {
+  return set.name || displayName(set.species);
 }

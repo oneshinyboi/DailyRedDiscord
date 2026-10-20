@@ -21,3 +21,31 @@ function moveIdOf(id: string): string {
 export function moveOf(id: string) {
   return gen3.moves.get(moveIdOf(id)) ?? null;
 }
+
+export function speciesByName(name: string) {
+  return gen3.species.get(name) ?? null;
+}
+
+export function dexNumOf(name: string): number | null {
+  const num = speciesByName(name)?.num;
+  return num !== undefined && num > 0 && num <= 386 ? num : null;
+}
+
+export const STAT_LABELS = [
+  ["hp", "HP"],
+  ["atk", "Atk"],
+  ["def", "Def"],
+  ["spa", "SpA"],
+  ["spd", "SpD"],
+  ["spe", "Spe"],
+] as const;
+
+export function baseStatsOf(set: PokemonSet) {
+  return speciesOf(set)?.baseStats ?? null;
+}
+
+export function baseStatTotal(set: PokemonSet): number {
+  const stats = baseStatsOf(set);
+  if (stats === null) return 0;
+  return stats.hp + stats.atk + stats.def + stats.spa + stats.spd + stats.spe;
+}

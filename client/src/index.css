@@ -1,111 +1,100 @@
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --bg: #e7ecf3;
+  --bg2: #f6f8fb;
+  --ink: #131a27;
+  --ink2: #334055;
+  --muted: #5a6579;
+  --line: #c6cfdc;
+  --accent: #d23339;
+  --accent-deep: #8f1f25;
+  --accent-lit: #ff6b6f;
+  --good: #2f8f5b;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --sky1: #18264a;
+  --sky2: #46659c;
+  --mtn1: #22345c;
+  --mtn2: #2e4573;
+  --snow: #e4ebf5;
+  --snow2: #b9c8dd;
+  --hud: #f6f5e7;
+  --hud-ink: #283041;
+  --hud-sh: #cfcdbb;
+  --hpg: #4cc27a;
+  --hpy: #f0bb2b;
+  --hpr: #ec5a3d;
+  --hptrack: #3a4558;
+  --box: #151d2c;
+  --msg: #27324a;
+  --frame: #a9bbd6;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
+  --f-ui: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  --f-pix: "Pixelify Sans", ui-monospace, monospace;
+
+  --shadow: 0 18px 40px -18px rgba(19, 26, 39, 0.45);
+
+  font-family: var(--f-ui);
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--sky1);
+  color-scheme: light;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+* {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1.5px 1.5px at 12% 14%, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1.5px 1.5px at 63% 8%, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1.5px 1.5px at 88% 22%, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1.5px 1.5px at 30% 30%, rgba(255, 255, 255, 0.6), transparent),
+    linear-gradient(var(--sky1), var(--mtn2) 70%, var(--mtn1));
+  background-attachment: fixed;
+}
+
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
 }
 
 h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
+h2,
+h3,
 p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+h1,
+h2,
+h3 {
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.02em;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+button {
+  font-family: inherit;
+}
+
+img.sprite,
+.sprite {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+}
+
+.sprite-missing {
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--f-pix);
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 8px;
 }
