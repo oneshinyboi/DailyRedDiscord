@@ -30,6 +30,12 @@ export function todayInTimeZone(timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
 }
 
+/** The calendar date (YYYY-MM-DD) before the given one. */
+export function previousDay(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
 export function isValidTimeZone(timeZone: string): boolean {
   try {
     todayInTimeZone(timeZone);
@@ -55,7 +61,11 @@ export interface DailySeeds {
  * date faces the identical team, battle RNG, and Red AI sequence.
  */
 export function dailySeeds(timeZone: string): DailySeeds {
-  const date = todayInTimeZone(timeZone);
+  return dailySeedsForDate(todayInTimeZone(timeZone));
+}
+
+/** Same seeds for an explicit date, so stored battles can be rebuilt later. */
+export function dailySeedsForDate(date: string): DailySeeds {
   const [a, b, c, d] = seedFromString(`dailyred|${date}`).split(",").map(Number);
   const rotate = (parts: number[]) => parts.join(",") as PRNGSeed;
   return {

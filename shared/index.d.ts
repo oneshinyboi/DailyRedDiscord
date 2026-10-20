@@ -68,7 +68,20 @@ export interface BattleSnapshot {
   winner: string | null;
 }
 
-export type ChoiceResponse = BattleSnapshot & { error?: string };
+/** Per-user daily streaks; current values are 0 once a day has been missed. */
+export interface StreakInfo {
+  /** Consecutive days a battle was begun. */
+  play: number;
+  bestPlay: number;
+  /** Consecutive days a battle was won. */
+  win: number;
+  bestWin: number;
+}
+
+export type ChoiceResponse = BattleSnapshot & {
+  error?: string;
+  streak: StreakInfo;
+};
 
 export type StartResponse =
   | {
@@ -77,6 +90,7 @@ export type StartResponse =
       date: string;
       team: PokemonSet[];
       redTeam: PokemonSet[];
+      streak: StreakInfo;
     }
   | {
       battleId: string;
@@ -86,10 +100,16 @@ export type StartResponse =
       redTeam: PokemonSet[];
       ended: boolean;
       winner: string | null;
+      streak: StreakInfo;
     };
 
 export type BeginResponse =
-  | (BattleSnapshot & { battleId: string; date: string; team: PokemonSet[] })
+  | (BattleSnapshot & {
+      battleId: string;
+      date: string;
+      team: PokemonSet[];
+      streak: StreakInfo;
+    })
   | {
       battleId: string;
       date: string;
@@ -97,6 +117,7 @@ export type BeginResponse =
       team: PokemonSet[];
       ended: boolean;
       winner: string | null;
+      streak: StreakInfo;
     };
 
 export type BattleHistory = BattleSnapshot & {
@@ -106,4 +127,5 @@ export type BattleHistory = BattleSnapshot & {
 
 export type HistoryResponse = BattleHistory & {
   battleId: string;
+  streak: StreakInfo;
 };

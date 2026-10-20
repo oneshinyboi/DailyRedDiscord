@@ -1,7 +1,13 @@
 import express from "express";
 import dotenv from "dotenv";
 dotenv.config({ path: "../.env" });
-import { requireDiscordUser } from "./auth.js";
+import {
+  DiscordUnavailableError,
+  isUserInGuild,
+  requireDiscordUser,
+} from "./auth.js";
+import { handleInteraction } from "./interactions.js";
+import { recordGuild } from "./battle/store.js";
 import type {
   BeginResponse,
   ChoiceResponse,
@@ -15,10 +21,16 @@ import {
   createSession,
   getDailySession,
   getSessionFor,
+  restoreSessions,
+  streakFor,
 } from "./battle/session.js";
 
 const app = express();
-const port = 3001;
+const port = Number(process.env.PORT) || 3001;
+
+// Discord signs interaction requests over their exact bytes, so this route
+// takes the raw body and must be registered before the JSON parser.
+app.post("/api/interactions", express.raw({ type: "*/*" }), handleInteraction);
 
 // Allow express to parse JSON bodies
 app.use(express.json());
@@ -26,14 +38,41 @@ app.use(express.json());
 // All battle routes require a valid Discord access token.
 app.use("/api/battle", requireDiscordUser);
 
+const SNOWFLAKE_RE = /^\d{15,25}$/;
+
+/**
+ * Remembers which guild the user plays from, for the guild leaderboard. The
+ * client reports the guild, but it is only recorded after Discord confirms the
+ * user is a member. A failed check never blocks the request.
+ */
+async function noteGuild(req: express.Request, guildId: unknown): Promise<void> {
+  if (typeof guildId !== "string" || !SNOWFLAKE_RE.test(guildId)) return;
+  try {
+    if (await isUserInGuild(req.headers.authorization, guildId)) {
+      recordGuild(req.userId!, guildId);
+    }
+  } catch (err) {
+    console.warn(
+      err instanceof DiscordUnavailableError
+        ? "could not verify guild membership; not recording guild"
+        : "could not record guild",
+      err instanceof DiscordUnavailableError ? "" : err
+    );
+  }
+}
+
 // Today's state: the user's existing battle for this timezone's date, or a
 // no-commitment preview of today's team (nothing is consumed by this call).
-app.post("/api/battle/start", (req, res) => {
-  const { timeZone = "UTC" } = req.body as { timeZone?: string };
+app.post("/api/battle/start", async (req, res) => {
+  const { timeZone = "UTC", guildId } = req.body as {
+    timeZone?: string;
+    guildId?: string | null;
+  };
   if (!isValidTimeZone(timeZone)) {
     res.status(400).json({ error: "invalid timeZone" });
     return;
   }
+  await noteGuild(req, guildId);
   const date = todayInTimeZone(timeZone);
   const session = getDailySession(req.userId!, date);
   if (session) {
@@ -45,6 +84,7 @@ app.post("/api/battle/start", (req, res) => {
       redTeam: RED_TEAM,
       ended: session.ended,
       winner: session.winner,
+      streak: streakFor(req.userId!, date),
     };
     res.json(payload);
     return;
@@ -53,6 +93,7 @@ app.post("/api/battle/start", (req, res) => {
     battleId: null,
     phase: "preview",
     redTeam: RED_TEAM,
+    streak: streakFor(req.userId!, date),
     ...dailyPreview(timeZone),
   };
   res.json(preview);
@@ -63,9 +104,10 @@ app.post("/api/battle/start", (req, res) => {
 // already began today's battle (anywhere on the scale of begun..ended), it
 // is returned as-is.
 app.post("/api/battle/begin", async (req, res) => {
-  const { timeZone = "UTC", slot } = req.body as {
+  const { timeZone = "UTC", slot, guildId } = req.body as {
     timeZone?: string;
     slot?: number;
+    guildId?: string | null;
   };
   if (!isValidTimeZone(timeZone)) {
     res.status(400).json({ error: "invalid timeZone" });
@@ -75,6 +117,7 @@ app.post("/api/battle/begin", async (req, res) => {
     res.status(400).json({ error: "slot must be an integer 1-6" });
     return;
   }
+  await noteGuild(req, guildId);
 
   const date = todayInTimeZone(timeZone);
   const existing = getDailySession(req.userId!, date);
@@ -86,6 +129,7 @@ app.post("/api/battle/begin", async (req, res) => {
       team: existing.playerTeam,
       ended: existing.ended,
       winner: existing.winner,
+      streak: streakFor(req.userId!, existing.date),
     };
     res.json(payload);
     return;
@@ -97,6 +141,7 @@ app.post("/api/battle/begin", async (req, res) => {
     battleId: session.id,
     date: session.date,
     team: session.playerTeam,
+    streak: streakFor(req.userId!, session.date),
     ...snapshot,
   };
   res.json(payload);
@@ -129,7 +174,11 @@ app.get("/api/battle/:id", (req, res) => {
     res.status(404).json({ error: "unknown battle" });
     return;
   }
-  const payload: HistoryResponse = { battleId: session.id, ...session.history() };
+  const payload: HistoryResponse = {
+    battleId: session.id,
+    streak: streakFor(req.userId!, session.date),
+    ...session.history(),
+  };
   res.json(payload);
 });
 
@@ -160,6 +209,9 @@ app.post("/api/token", async (req, res) => {
   // Return the access_token to our client as { access_token: "..."}
   res.send({ access_token: body.access_token });
 });
+
+// Restore stored battles before accepting requests.
+await restoreSessions();
 
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}`);

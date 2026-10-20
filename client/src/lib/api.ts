@@ -62,17 +62,19 @@ async function api<T>(
 
 export function fetchStart(
   token: string,
-  timeZone: string
+  timeZone: string,
+  guildId: string | null
 ): Promise<StartResponse> {
-  return api("/api/battle/start", token, "POST", { timeZone });
+  return api("/api/battle/start", token, "POST", { timeZone, guildId });
 }
 
 export function beginBattle(
   token: string,
   timeZone: string,
-  slot: number
+  slot: number,
+  guildId: string | null
 ): Promise<BeginResponse> {
-  return api("/api/battle/begin", token, "POST", { timeZone, slot });
+  return api("/api/battle/begin", token, "POST", { timeZone, slot, guildId });
 }
 
 export function fetchBattle(

@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "tsc && node dist/server.js",
+    "register-commands": "tsc && node dist/scripts/registerCommands.js",
     "dev": "tsc --watch & node --watch dist/server.js"
   },
   "license": "ISC",

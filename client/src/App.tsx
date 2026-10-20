@@ -131,6 +131,11 @@ function authenticateOnce(
   return authSession;
 }
 
+// The guild the activity was launched in (null in DMs and in local dev).
+function currentGuildId(): string | null {
+  return DEV_AUTH ? null : discordSdk().guildId;
+}
+
 function toGameData(history: HistoryResponse): GameData {
   return {
     battleId: history.battleId,
@@ -140,6 +145,7 @@ function toGameData(history: HistoryResponse): GameData {
     request: history.request,
     ended: history.ended,
     winner: history.winner,
+    streak: history.streak,
   };
 }
 
@@ -216,7 +222,7 @@ function App() {
         setToken(accessToken);
         setUsername(user.username);
         boot(`Loading today's team for ${user.username}...`);
-        return fetchStart(accessToken, timeZone).then((start) => {
+        return fetchStart(accessToken, timeZone, currentGuildId()).then((start) => {
           if (!cancelled) routeStart(accessToken, start, null);
         });
       })
@@ -233,10 +239,14 @@ function App() {
     setStarting(true);
     const run = async () => {
       if (localDate(timeZone) !== screen.date) {
-        routeStart(token, await fetchStart(token, timeZone), NEW_DAY_NOTE);
+        routeStart(
+          token,
+          await fetchStart(token, timeZone, currentGuildId()),
+          NEW_DAY_NOTE
+        );
         return;
       }
-      const begun = await beginBattle(token, timeZone, slot);
+      const begun = await beginBattle(token, timeZone, slot, currentGuildId());
       let data: GameData;
       let note: string | null = null;
       if ("lines" in begun) {
@@ -248,6 +258,7 @@ function App() {
           request: begun.request,
           ended: begun.ended,
           winner: begun.winner,
+          streak: begun.streak,
         };
         if (begun.date !== screen.date) note = NEW_DAY_NOTE;
       } else {

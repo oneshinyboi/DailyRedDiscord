@@ -80,6 +80,7 @@ export default function GameView({
           phase: res.phase,
           ended: res.ended,
           winner: res.winner,
+          streak: res.streak,
         }));
         if (res.error !== undefined) setError(res.error);
       })
@@ -104,6 +105,7 @@ export default function GameView({
             request: history.request,
             ended: history.ended,
             winner: history.winner,
+            streak: history.streak,
           });
         })
         .catch((err: unknown) => setError(errorMessage(err)));

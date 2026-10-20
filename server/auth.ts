@@ -71,6 +71,66 @@ export async function getDiscordUser(
   return user.id;
 }
 
+const GUILD_CACHE_TTL = 5 * 60_000;
+const MAX_GUILD_PAGES = 5;
+const guildCache = new Map<string, { guilds: Set<string>; expiresAt: number }>();
+
+const guildSweeper = setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of guildCache) {
+    if (entry.expiresAt <= now) guildCache.delete(token);
+  }
+}, 5 * 60_000);
+guildSweeper.unref();
+
+/** True only in an opt-in, non-production dev build using the "dev" token. */
+export function isDevAuth(authorization: string | undefined): boolean {
+  return (
+    process.env.DEV_AUTH === "1" &&
+    process.env.NODE_ENV !== "production" &&
+    authorization === "Bearer dev"
+  );
+}
+
+/**
+ * Checks, against Discord, that the token's user is a member of the guild.
+ * Needs the "guilds" OAuth scope. Throws DiscordUnavailableError if Discord
+ * cannot be reached or the token lacks the scope.
+ */
+export async function isUserInGuild(
+  authorization: string | undefined,
+  guildId: string
+): Promise<boolean> {
+  if (isDevAuth(authorization)) return true;
+  if (!authorization?.startsWith("Bearer ")) return false;
+  const token = authorization.slice(7);
+
+  const cached = guildCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) return cached.guilds.has(guildId);
+
+  const guilds = new Set<string>();
+  let after: string | undefined;
+  for (let page = 0; page < MAX_GUILD_PAGES; page++) {
+    let response: globalThis.Response;
+    try {
+      const url = new URL(`${DISCORD_API_BASE}/users/@me/guilds`);
+      url.searchParams.set("limit", "200");
+      if (after) url.searchParams.set("after", after);
+      response = await fetch(url, { headers: { Authorization: authorization } });
+    } catch {
+      throw new DiscordUnavailableError();
+    }
+    if (!response.ok) throw new DiscordUnavailableError();
+    const batch = (await response.json()) as { id: string }[];
+    for (const guild of batch) guilds.add(guild.id);
+    if (batch.length < 200) break;
+    after = batch[batch.length - 1].id;
+  }
+
+  guildCache.set(token, { guilds, expiresAt: Date.now() + GUILD_CACHE_TTL });
+  return guilds.has(guildId);
+}
+
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -88,11 +148,7 @@ export async function requireDiscordUser(
 ): Promise<void> {
   // Local browser development: the client sends "Bearer dev" instead of a
   // Discord token. Opt-in only, and refused when NODE_ENV=production.
-  if (
-    process.env.DEV_AUTH === "1" &&
-    process.env.NODE_ENV !== "production" &&
-    req.headers.authorization === "Bearer dev"
-  ) {
+  if (isDevAuth(req.headers.authorization)) {
     req.userId = "dev-user";
     next();
     return;

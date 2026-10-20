@@ -50,6 +50,28 @@ function SpriteRow({
   );
 }
 
+function dayCount(n: number): string {
+  return `${n} day${n === 1 ? "" : "s"}`;
+}
+
+function StreakTile({
+  label,
+  current,
+  best,
+}: {
+  label: string;
+  current: number;
+  best: number;
+}) {
+  return (
+    <div className="streak-tile">
+      <span className="streak-label">{label}</span>
+      <b className="streak-value">{dayCount(current)}</b>
+      <span className="streak-best">Best: {dayCount(best)}</span>
+    </div>
+  );
+}
+
 export default function ResultsScreen({ data }: ResultsScreenProps) {
   const result = buildResult({
     date: data.date,
@@ -107,6 +129,18 @@ export default function ResultsScreen({ data }: ResultsScreenProps) {
           <span className="result-icons">{result.icons.join("")}</span>
           <span className="result-stats">{result.stats}</span>
         </p>
+        <div className="result-streaks">
+          <StreakTile
+            label="Play streak"
+            current={data.streak.play}
+            best={data.streak.bestPlay}
+          />
+          <StreakTile
+            label="Win streak"
+            current={data.streak.win}
+            best={data.streak.bestWin}
+          />
+        </div>
       </div>
       <button type="button" className="btn primary" onClick={copy}>
         {copied ? "Copied!" : "Copy result"}
