@@ -1,0 +1,38 @@
+name: Build and Push Docker Image
+
+on:
+  release:
+    types: [published]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE: diamondcoder295/dailyreddiscord
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Log in to Docker Hub
+      env:
+        DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+        DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
+      run: echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
+    - name: Build and push Docker image
+      env:
+        # Public Discord application id; it is compiled into the client bundle.
+        VITE_DISCORD_CLIENT_ID: ${{ secrets.VITE_DISCORD_CLIENT_ID }}
+      run: |
+        if [ -z "$VITE_DISCORD_CLIENT_ID" ]; then
+          echo "The VITE_DISCORD_CLIENT_ID secret is not set" >&2
+          exit 1
+        fi
+        VERSION="${GITHUB_REF_NAME#v}"
+        docker build . --file Dockerfile \
+          --build-arg VITE_DISCORD_CLIENT_ID="$VITE_DISCORD_CLIENT_ID" \
+          --tag $IMAGE:$VERSION
+        docker tag $IMAGE:$VERSION $IMAGE:latest
+        docker push $IMAGE:$VERSION
+        docker push $IMAGE:latest

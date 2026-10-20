@@ -1,5 +1,5 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { StreakInfo } from "@dailyred/shared";
 import { previousDay } from "./seed.js";
@@ -115,8 +115,17 @@ export function initStore(): void {
     ),
     deleteChoices: db.prepare(`DELETE FROM choices WHERE session_id = $id`),
     deleteSession: db.prepare(`DELETE FROM sessions WHERE id = $id`),
-    allSessions: db.prepare(`SELECT * FROM sessions ORDER BY created_at`),
-    allChoices: db.prepare(`SELECT session_id, choice FROM choices ORDER BY session_id, seq`),
+    sessionById: db.prepare(`SELECT * FROM sessions WHERE id = $id`),
+    sessionByOwnerDate: db.prepare(
+      `SELECT * FROM sessions WHERE owner_id = $ownerId AND date = $date`
+    ),
+    choicesFor: db.prepare(
+      `SELECT choice FROM choices WHERE session_id = $id ORDER BY seq`
+    ),
+    staleSessions: db.prepare(
+      `SELECT id FROM sessions WHERE owner_id = $ownerId
+       ORDER BY date DESC LIMIT -1 OFFSET $keep`
+    ),
     getPlayer: db.prepare(`SELECT * FROM players WHERE owner_id = $ownerId`),
     putPlayer: db.prepare(
       `INSERT INTO players (owner_id, games_played, wins, play_streak, best_play_streak,
@@ -284,14 +293,11 @@ export function deleteSession(id: string): void {
   });
 }
 
-export function loadAllSessions(): SessionRecord[] {
-  const choices = new Map<string, string[]>();
-  for (const row of stmts.allChoices.all() as { session_id: string; choice: string }[]) {
-    const list = choices.get(row.session_id) ?? [];
-    list.push(row.choice);
-    choices.set(row.session_id, list);
-  }
-  return (stmts.allSessions.all() as Record<string, any>[]).map((row) => ({
+function toRecord(row: Record<string, any>): SessionRecord {
+  const choices = (stmts.choicesFor.all({ id: row.id }) as { choice: string }[]).map(
+    (c) => c.choice
+  );
+  return {
     id: row.id,
     ownerId: row.owner_id,
     date: row.date,
@@ -300,8 +306,35 @@ export function loadAllSessions(): SessionRecord[] {
     ended: row.ended === 1,
     winner: row.winner,
     log: row.log ? JSON.parse(row.log) : null,
-    choices: choices.get(row.id) ?? [],
-  }));
+    choices,
+  };
+}
+
+export function findSessionById(id: string): SessionRecord | undefined {
+  const row = stmts.sessionById.get({ id });
+  return row ? toRecord(row) : undefined;
+}
+
+export function findSessionByOwnerDate(
+  ownerId: string,
+  date: string
+): SessionRecord | undefined {
+  const row = stmts.sessionByOwnerDate.get({ ownerId, date });
+  return row ? toRecord(row) : undefined;
+}
+
+/** Deletes all but the user's `keep` newest-dated sessions; returns the ids removed. */
+export function evictOldSessions(ownerId: string, keep: number): string[] {
+  return transaction(() => {
+    const ids = (stmts.staleSessions.all({ ownerId, keep }) as { id: string }[]).map(
+      (r) => r.id
+    );
+    for (const id of ids) {
+      stmts.deleteChoices.run({ id });
+      stmts.deleteSession.run({ id });
+    }
+    return ids;
+  });
 }
 
 /** Remembers that the user plays in this guild. Idempotent. */
@@ -347,4 +380,29 @@ export function getMeta(key: string): string | undefined {
 
 export function setMeta(key: string, value: string): void {
   stmts.putMeta.run({ key, value });
+}
+
+export function closeStore(): void {
+  db?.close();
+}
+
+/**
+ * Writes a consistent copy of the database into `dir` (named by timestamp)
+ * and keeps only the newest `keep` copies. Skipped if the newest copy is
+ * younger than `minAgeMs`, so frequent restarts don't churn the backups.
+ */
+export function backupDatabase(dir: string, keep: number, minAgeMs: number): string | null {
+  mkdirSync(dir, { recursive: true });
+  const existing = readdirSync(dir)
+    .filter((f) => /^dailyred-.*\.sqlite$/.test(f))
+    .sort();
+  const newest = existing[existing.length - 1];
+  if (newest && Date.now() - statSync(join(dir, newest)).mtimeMs < minAgeMs) return null;
+
+  const name = `dailyred-${new Date().toISOString().replace(/[:.]/g, "-")}.sqlite`;
+  db.prepare("VACUUM INTO ?").run(join(dir, name));
+  for (const old of [...existing, name].sort().slice(0, -keep)) {
+    rmSync(join(dir, old), { force: true });
+  }
+  return name;
 }

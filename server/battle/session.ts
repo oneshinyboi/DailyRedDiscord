@@ -60,6 +60,8 @@ export class BattleSession {
   private concluded = false;
   private finalized = false;
   private queue: Promise<unknown> = Promise.resolve();
+  private lastAccess = Date.now();
+  private inFlight = 0;
   ended = false;
   winner: string | null = null;
 
@@ -223,9 +225,24 @@ export class BattleSession {
    * one session run one at a time so the stored choice order is the real one.
    */
   choose(choice: string): Promise<ChoiceResponse> {
+    this.touch();
+    this.inFlight++;
     const run = this.queue.then(() => this.applyChoice(choice));
     this.queue = run.catch(() => {});
-    return run;
+    return run.finally(() => {
+      this.inFlight--;
+      this.touch();
+    });
+  }
+
+  /** Marks the session as in use, so the idle sweeper leaves it alone. */
+  touch(): void {
+    this.lastAccess = Date.now();
+  }
+
+  /** True when nothing is running and nobody has used it for `ms`. */
+  idleFor(ms: number): boolean {
+    return this.inFlight === 0 && Date.now() - this.lastAccess > ms;
   }
 
   private async applyChoice(choice: string): Promise<ChoiceResponse> {
@@ -332,89 +349,107 @@ export class BattleSession {
   }
 }
 
+/** Sessions currently held in memory; the database is the source of truth. */
 const sessions = new Map<string, BattleSession>();
-/** userId -> local date -> that day's session (one battle per date) */
-const byOwner = new Map<string, Map<string, BattleSession>>();
+/** Restores in progress, so concurrent requests share one replay. */
+const restoring = new Map<string, Promise<BattleSession>>();
 
-/** A user's session for a specific local date, if they have begun one. */
-export function getDailySession(
-  ownerId: string,
-  date: string
-): BattleSession | undefined {
-  return byOwner.get(ownerId)?.get(date);
+/** Upper bound on stored sessions per user (the oldest dates are deleted). */
+const MAX_SESSIONS_PER_USER = 4;
+/** A session unused for this long is dropped from memory (and reloaded on demand). Set at init. */
+let idleMs = 30 * 60_000;
+
+let sweeper: NodeJS.Timeout | undefined;
+
+/** Returns the in-memory session for a stored record, restoring it if needed. */
+function load(rec: store.SessionRecord): Promise<BattleSession> {
+  const live = sessions.get(rec.id);
+  if (live) {
+    live.touch();
+    return Promise.resolve(live);
+  }
+  let pending = restoring.get(rec.id);
+  if (!pending) {
+    pending = BattleSession.restore(rec)
+      .then((session) => {
+        sessions.set(session.id, session);
+        return session;
+      })
+      .finally(() => restoring.delete(rec.id));
+    restoring.set(rec.id, pending);
+  }
+  return pending;
 }
 
-/** Upper bound on concurrent sessions per user (evicts oldest date). */
-const MAX_SESSIONS_PER_USER = 4;
+/** A user's session for a specific local date, if they have begun one. */
+export async function getDailySession(
+  ownerId: string,
+  date: string
+): Promise<BattleSession | undefined> {
+  const rec = store.findSessionByOwnerDate(ownerId, date);
+  return rec ? load(rec) : undefined;
+}
+
+/** Fetches a battle only if it exists AND belongs to the given user. */
+export async function getSessionFor(
+  ownerId: string,
+  battleId: string
+): Promise<BattleSession | undefined> {
+  const live = sessions.get(battleId);
+  if (live) {
+    if (live.ownerId !== ownerId) return undefined;
+    live.touch();
+    return live;
+  }
+  const rec = store.findSessionById(battleId);
+  return rec?.ownerId === ownerId ? load(rec) : undefined;
+}
 
 /**
- * Begins the user's battle for the given timezone's today, with their chosen
- * lead. The caller checks getDailySession() first; this always creates a new
- * session and registers it synchronously, so concurrent begins cannot race.
+ * Returns the user's battle for the given timezone's today, creating it with
+ * their chosen lead if they haven't begun one. The existence check and the
+ * insert happen with no await between them, so concurrent begins cannot race.
  */
-export function createSession(
+export async function beginSession(
   ownerId: string,
   timeZone: string,
   leadSlot: number
-): BattleSession {
-  const session = new BattleSession(ownerId, timeZone, leadSlot);
+): Promise<{ session: BattleSession; created: boolean }> {
+  const date = todayInTimeZone(timeZone);
+  const existing = store.findSessionByOwnerDate(ownerId, date);
+  if (existing) return { session: await load(existing), created: false };
+
+  const session = new BattleSession(ownerId, timeZone, leadSlot, { date });
   try {
-    store.insertSession({
-      id: session.id,
-      ownerId,
-      date: session.date,
-      timeZone,
-      leadSlot,
-    });
+    store.insertSession({ id: session.id, ownerId, date, timeZone, leadSlot });
   } catch (err) {
     session.destroy();
     throw err;
   }
   sessions.set(session.id, session);
-  let dated = byOwner.get(ownerId);
-  if (!dated) {
-    dated = new Map();
-    byOwner.set(ownerId, dated);
+  for (const id of store.evictOldSessions(ownerId, MAX_SESSIONS_PER_USER)) {
+    sessions.get(id)?.destroy();
+    sessions.delete(id);
   }
-  dated.set(session.date, session);
-  if (dated.size > MAX_SESSIONS_PER_USER) {
-    // ISO dates sort chronologically; evict the oldest
-    const oldest = [...dated.keys()].sort()[0];
-    const evicted = dated.get(oldest)!;
-    dated.delete(oldest);
-    sessions.delete(evicted.id);
-    evicted.destroy();
-    store.deleteSession(evicted.id);
-  }
-  return session;
+  return { session, created: true };
 }
 
-/** Fetches a battle only if it exists AND belongs to the given user. */
-export function getSessionFor(
-  ownerId: string,
-  battleId: string
-): BattleSession | undefined {
-  const session = sessions.get(battleId);
-  return session?.ownerId === ownerId ? session : undefined;
-}
-
-function register(session: BattleSession): void {
-  sessions.set(session.id, session);
-  let dated = byOwner.get(session.ownerId);
-  if (!dated) {
-    dated = new Map();
-    byOwner.set(session.ownerId, dated);
+function dropIdleSessions(): void {
+  for (const [id, session] of sessions) {
+    if (session.idleFor(idleMs)) {
+      sessions.delete(id);
+      session.destroy();
+    }
   }
-  dated.set(session.date, session);
 }
 
 /**
- * Opens the database and restores every stored battle. Call once at startup,
- * before accepting requests. A battle that can no longer be replayed is
- * logged and left in the database (not registered), so it is retried on the
- * next start.
+ * Opens the database and starts the idle sweeper. Call once at startup.
+ * Battles are not restored here; each is replayed from its stored choices the
+ * first time it is used. One that can no longer be replayed makes that request
+ * fail, and is retried on the next use.
  */
-export async function restoreSessions(): Promise<void> {
+export function initSessions(): void {
   store.initStore();
   const version: string = require("pokemon-showdown/package.json").version;
   const previous = store.getMeta("showdown_version");
@@ -424,17 +459,17 @@ export async function restoreSessions(): Promise<void> {
     );
   }
   store.setMeta("showdown_version", version);
-  const records = store.loadAllSessions();
-  let restored = 0;
-  for (const rec of records) {
-    try {
-      register(await BattleSession.restore(rec));
-      restored++;
-    } catch (err) {
-      console.error(`could not restore battle ${rec.id}`, err);
-    }
-  }
-  console.log(`Restored ${restored}/${records.length} battle sessions`);
+  idleMs = (Number(process.env.SESSION_IDLE_MINUTES) || 30) * 60_000;
+  sweeper = setInterval(dropIdleSessions, Math.min(60_000, idleMs));
+  sweeper.unref();
+}
+
+/** Stops the engines and closes the database. Nothing is lost: every accepted move is already stored. */
+export function shutdownSessions(): void {
+  if (sweeper) clearInterval(sweeper);
+  for (const session of sessions.values()) session.destroy();
+  sessions.clear();
+  store.closeStore();
 }
 
 /** The user's streaks as of the given local date. */
