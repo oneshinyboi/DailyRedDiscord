@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import BattleScene from "./BattleScene";
 import Sprite from "./Sprite";
 import { errorMessage, fetchBattle, sendChoice } from "../lib/api";
-import { buildBattleView } from "../lib/battle";
 import { moveOf } from "../lib/dex";
 import { formatLogLine, identName, resultBanner } from "../lib/format";
+import { usePlayback } from "../lib/usePlayback";
 import type { LogEntry } from "../lib/format";
 import type {
   ChoiceRequest,
@@ -47,19 +47,35 @@ export default function GameView({
   const notifiedRef = useRef(false);
   const logRef = useRef<HTMLDivElement | null>(null);
 
+  const playback = usePlayback(state.lines);
+  const { view, playing, skip } = playback;
+
   useEffect(() => {
-    if (state.ended && !notifiedRef.current) {
+    if (state.ended && !playing && !notifiedRef.current) {
       notifiedRef.current = true;
       onEnded(state);
     }
-  }, [state, onEnded]);
+  }, [state, playing, onEnded]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        skip();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playing, skip]);
 
   const log = useMemo<LogEntry[]>(
     () =>
       state.lines
+        .slice(0, playback.shown)
         .map((line) => formatLogLine(line))
         .filter((entry): entry is LogEntry => entry !== null),
-    [state.lines]
+    [state.lines, playback.shown]
   );
 
   useEffect(() => {
@@ -113,11 +129,10 @@ export default function GameView({
     return () => clearTimeout(timer);
   }, [state, token]);
 
-  const result = state.ended ? resultBanner(state.winner) : null;
-  const view = useMemo(() => buildBattleView(state.lines), [state.lines]);
+  const result = state.ended && !playing ? resultBanner(state.winner) : null;
   const lastText =
     [...log].reverse().find((entry) => !entry.turn)?.text ?? "";
-  const message = result !== null ? result.text : lastText;
+  const message = result !== null ? result.text : (playback.text ?? lastText);
   const alive = (side: "p1" | "p2") =>
     Math.max(0, view[side].teamSize - view[side].faintedSpecies.length);
 
@@ -131,9 +146,10 @@ export default function GameView({
         <p className="banner banner-error">{error}</p>
       )}
       <div className="battle-layout">
-        <div className="battle-main">
+        <div className="battle-main" onClick={playing ? skip : undefined}>
           <span className="battle-tag">{`${username} vs. Red`}</span>
           <BattleScene
+            effect={playback.effect}
             foe={view.p2.active}
             ally={view.p1.active}
             foePips={{
@@ -147,7 +163,7 @@ export default function GameView({
           >
             <div className="msgbox">{message || "..."}</div>
             <Controls
-              request={state.request}
+              request={playing ? null : state.request}
               team={state.team}
               busy={busy}
               ended={state.ended}
@@ -156,7 +172,9 @@ export default function GameView({
             />
           </BattleScene>
           <p className="hint">
-            Arrow keys move the cursor, Enter attacks. Pokémon switches.
+            {playing
+              ? "Click or press Enter to skip."
+              : "Arrow keys move the cursor, Enter attacks. Pokémon switches."}
           </p>
         </div>
         <aside className="log-card">

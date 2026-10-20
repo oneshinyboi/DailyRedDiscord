@@ -13,9 +13,13 @@
     "dev:server:local": "DEV_AUTH=1 npm run dev -w server",
     "build": "npm run build -w server && npm run build -w client",
     "lint": "npm run lint -w client",
-    "start": "npm run start -w server"
+    "start": "npm run start -w server",
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=22.13"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
   }
 }

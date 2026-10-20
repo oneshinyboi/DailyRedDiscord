@@ -575,37 +575,148 @@
   height: 14%;
 }
 
-.stage .sprite {
+.mon {
   position: absolute;
   z-index: 2;
-  height: auto;
 }
 
-.stage .sprite.foe-sprite {
+.mon.foe-mon {
   right: 13%;
   top: 4%;
   width: 24%;
 }
 
-.stage .sprite.ally-sprite {
+.mon.ally-mon {
   left: 8%;
   bottom: 0;
   width: 32%;
 }
 
-.stage .sprite.fainted {
+.mon-body {
+  position: relative;
+}
+
+.mon-body .sprite {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mon-body .sprite-missing {
+  aspect-ratio: 1;
+}
+
+.mon-body.fainted {
   opacity: 0;
   transform: translateY(40%);
   transition: opacity 0.5s ease, transform 0.5s ease;
 }
 
-.stage .sprite.enter {
+.mon-body.enter {
   animation: pop-in 0.35s ease-out;
 }
 
 @keyframes pop-in {
   from { opacity: 0; transform: scale(0.6); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/* Move effects. Overlays are masked to the sprite's own silhouette. */
+.fx-shade,
+.fx-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  -webkit-mask: var(--mask) center / 100% 100% no-repeat;
+  mask: var(--mask) center / 100% 100% no-repeat;
+}
+
+.fx-shade {
+  background: linear-gradient(
+    to bottom,
+    var(--shade-hi) 0 50%,
+    var(--shade-lo) 50% 100%
+  );
+  background-size: 100% 4cqw;
+}
+
+.fx-shade.down {
+  --shade-hi: rgba(40, 130, 255, 0.85);
+  --shade-lo: rgba(110, 185, 255, 0.4);
+  animation: shade-down 1s linear both;
+}
+
+.fx-shade.up {
+  --shade-hi: rgba(255, 70, 40, 0.85);
+  --shade-lo: rgba(255, 140, 110, 0.4);
+  animation: shade-up 1s linear both;
+}
+
+@keyframes shade-down {
+  0% { opacity: 0; background-position: 0 0; }
+  15%, 80% { opacity: 1; }
+  100% { opacity: 0; background-position: 0 8cqw; }
+}
+
+@keyframes shade-up {
+  0% { opacity: 0; background-position: 0 0; }
+  15%, 80% { opacity: 1; }
+  100% { opacity: 0; background-position: 0 -8cqw; }
+}
+
+.fx-tint {
+  background: var(--fx-color, #fff);
+  animation: tint-pulse 0.9s ease-in-out both;
+}
+
+.fx-tint.charge {
+  animation-duration: 0.6s;
+}
+
+.fx-tint.s-par { --fx-color: #f2d21b; }
+.fx-tint.s-psn, .fx-tint.s-tox { --fx-color: #b45cc0; }
+.fx-tint.s-brn { --fx-color: #ff7a2e; }
+.fx-tint.s-slp { --fx-color: #9fb0c8; }
+.fx-tint.s-frz { --fx-color: #7fd8f0; }
+.fx-tint.heal { --fx-color: #5de08c; }
+
+@keyframes tint-pulse {
+  0%, 100% { opacity: 0; }
+  25%, 75% { opacity: 0.75; }
+  50% { opacity: 0.1; }
+}
+
+.fx-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 90%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1;
+  background: radial-gradient(circle, #fff 0 12%, var(--fx-color) 30%, transparent 68%);
+  animation: burst 0.5s ease-out both;
+}
+
+.fx-burst.p1 { width: 60%; }
+.fx-burst.p3 { width: 130%; }
+
+@keyframes burst {
+  0% { opacity: 0; transform: scale(0.2); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-shade,
+  .fx-tint,
+  .fx-burst {
+    display: none;
+  }
 }
 
 .hud {

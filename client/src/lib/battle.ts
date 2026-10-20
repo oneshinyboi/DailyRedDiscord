@@ -83,95 +83,114 @@ function addRoster(side: SideState, species: string): void {
   if (!side.roster.includes(species)) side.roster.push(species);
 }
 
+export function createView(): BattleView {
+  return { turn: 0, p1: emptySide(), p2: emptySide() };
+}
+
+function cloneSide(side: SideState): SideState {
+  return {
+    ...side,
+    active: side.active === null ? null : { ...side.active },
+    faintedSpecies: [...side.faintedSpecies],
+    roster: [...side.roster],
+  };
+}
+
+export function cloneView(view: BattleView): BattleView {
+  return { turn: view.turn, p1: cloneSide(view.p1), p2: cloneSide(view.p2) };
+}
+
 export function buildBattleView(lines: string[]): BattleView {
-  const view: BattleView = { turn: 0, p1: emptySide(), p2: emptySide() };
+  const view = createView();
+  for (const line of lines) applyLine(view, line);
+  return view;
+}
 
-  for (const line of lines) {
-    if (!line.startsWith("|")) continue;
-    const parts = line.slice(1).split("|");
-    const kind = parts[0];
-    const args = parts.slice(1);
+/** Folds one protocol line into `view`, mutating it. */
+export function applyLine(view: BattleView, line: string): void {
+  if (!line.startsWith("|")) return;
+  const parts = line.slice(1).split("|");
+  const kind = parts[0];
+  const args = parts.slice(1);
 
-    switch (kind) {
-      case "teamsize": {
-        const key = args[0] === "p1" || args[0] === "p2" ? args[0] : null;
-        const size = Number(args[1]);
-        if (key !== null && Number.isFinite(size) && size > 0) {
-          view[key].teamSize = size;
+  switch (kind) {
+    case "teamsize": {
+      const key = args[0] === "p1" || args[0] === "p2" ? args[0] : null;
+      const size = Number(args[1]);
+      if (key !== null && Number.isFinite(size) && size > 0) {
+        view[key].teamSize = size;
+      }
+      break;
+    }
+    case "poke": {
+      const key = args[0] === "p1" || args[0] === "p2" ? args[0] : null;
+      if (key !== null && args[1] !== undefined) {
+        addRoster(view[key], parseDetails(args[1]).species);
+      }
+      break;
+    }
+    case "turn": {
+      const n = Number(args[0]);
+      if (Number.isFinite(n)) view.turn = n;
+      break;
+    }
+    case "switch":
+    case "drag": {
+      const key = sideKey(args[0] ?? "");
+      if (key === null) break;
+      const { species, level } = parseDetails(args[1] ?? "");
+      const cond = parseCondition(args[2] ?? "100/100");
+      addRoster(view[key], species);
+      view[key].active = {
+        name: nameOf(args[0] ?? ""),
+        species,
+        level,
+        ...cond,
+      };
+      break;
+    }
+    case "-damage":
+    case "-heal":
+    case "-sethp": {
+      const key = sideKey(args[0] ?? "");
+      const active = key === null ? null : view[key].active;
+      if (key === null || active === null) break;
+      const cond = parseCondition(args[1] ?? "");
+      view[key].active = {
+        ...active,
+        ...cond,
+        status: cond.status ?? active.status,
+      };
+      break;
+    }
+    case "-status": {
+      const key = sideKey(args[0] ?? "");
+      const active = key === null ? null : view[key].active;
+      if (key !== null && active !== null) {
+        view[key].active = { ...active, status: args[1] ?? null };
+      }
+      break;
+    }
+    case "-curestatus": {
+      const key = sideKey(args[0] ?? "");
+      const active = key === null ? null : view[key].active;
+      if (key !== null && active !== null) {
+        view[key].active = { ...active, status: null };
+      }
+      break;
+    }
+    case "faint": {
+      const key = sideKey(args[0] ?? "");
+      const active = key === null ? null : view[key].active;
+      if (key !== null && active !== null) {
+        view[key].active = { ...active, hpPct: 0, hp: 0, fainted: true, status: null };
+        if (!view[key].faintedSpecies.includes(active.species)) {
+          view[key].faintedSpecies.push(active.species);
         }
-        break;
       }
-      case "poke": {
-        const key = args[0] === "p1" || args[0] === "p2" ? args[0] : null;
-        if (key !== null && args[1] !== undefined) {
-          addRoster(view[key], parseDetails(args[1]).species);
-        }
-        break;
-      }
-      case "turn": {
-        const n = Number(args[0]);
-        if (Number.isFinite(n)) view.turn = n;
-        break;
-      }
-      case "switch":
-      case "drag": {
-        const key = sideKey(args[0] ?? "");
-        if (key === null) break;
-        const { species, level } = parseDetails(args[1] ?? "");
-        const cond = parseCondition(args[2] ?? "100/100");
-        addRoster(view[key], species);
-        view[key].active = {
-          name: nameOf(args[0] ?? ""),
-          species,
-          level,
-          ...cond,
-        };
-        break;
-      }
-      case "-damage":
-      case "-heal":
-      case "-sethp": {
-        const key = sideKey(args[0] ?? "");
-        const active = key === null ? null : view[key].active;
-        if (key === null || active === null) break;
-        const cond = parseCondition(args[1] ?? "");
-        view[key].active = {
-          ...active,
-          ...cond,
-          status: cond.status ?? active.status,
-        };
-        break;
-      }
-      case "-status": {
-        const key = sideKey(args[0] ?? "");
-        const active = key === null ? null : view[key].active;
-        if (key !== null && active !== null) {
-          view[key].active = { ...active, status: args[1] ?? null };
-        }
-        break;
-      }
-      case "-curestatus": {
-        const key = sideKey(args[0] ?? "");
-        const active = key === null ? null : view[key].active;
-        if (key !== null && active !== null) {
-          view[key].active = { ...active, status: null };
-        }
-        break;
-      }
-      case "faint": {
-        const key = sideKey(args[0] ?? "");
-        const active = key === null ? null : view[key].active;
-        if (key !== null && active !== null) {
-          view[key].active = { ...active, hpPct: 0, hp: 0, fainted: true, status: null };
-          if (!view[key].faintedSpecies.includes(active.species)) {
-            view[key].faintedSpecies.push(active.species);
-          }
-        }
-        break;
-      }
+      break;
     }
   }
-  return view;
 }
 
 export function hpColor(pct: number): "green" | "yellow" | "red" {
