@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { displayName, resultBanner } from "../lib/format";
+import TeamView from "./TeamView";
+import { resultBanner } from "../lib/format";
 import type { PokemonSet } from "../lib/types";
 
 interface MainScreenProps {
   date: string;
   team: PokemonSet[];
+  redTeam: PokemonSet[];
   sessionEnded: boolean;
   winner: string | null;
   note: string | null;
@@ -15,6 +17,7 @@ interface MainScreenProps {
 export default function MainScreen({
   date,
   team,
+  redTeam,
   sessionEnded,
   winner,
   note,
@@ -23,6 +26,7 @@ export default function MainScreen({
 }: MainScreenProps) {
   const [lead, setLead] = useState(1);
   const result = sessionEnded ? resultBanner(winner) : null;
+  const selectable = !sessionEnded;
 
   return (
     <section className="screen main">
@@ -32,39 +36,18 @@ export default function MainScreen({
       {result !== null && (
         <p className={`banner result-${result.kind}`}>{result.text}</p>
       )}
-      <h2>{sessionEnded ? "Today's battle is over" : "Today's team"}</h2>
+      <h2>{sessionEnded ? "Today's battle is over" : "Your team"}</h2>
       <p className="hint">
         {sessionEnded
           ? "Come back tomorrow for a brand-new squad."
           : "Pick your lead, then take on Red."}
       </p>
-      <div className="team-grid">
-        {team.map((pokemon, index) => {
-          const slot = index + 1;
-          const isLead = !sessionEnded && slot === lead;
-          return (
-            <button
-              key={`${slot}-${pokemon.name}`}
-              type="button"
-              className={isLead ? "poke-card selected" : "poke-card"}
-              disabled={sessionEnded || starting}
-              onClick={() => setLead(slot)}
-            >
-              {isLead && <span className="lead-badge">Lead</span>}
-              <h3>{pokemon.name || displayName(pokemon.species)}</h3>
-              <p className="meta">
-                {`Lv. ${pokemon.level ?? 100}${pokemon.item ? ` - ${pokemon.item}` : ""}`}
-              </p>
-              {pokemon.ability && <p className="meta">{pokemon.ability}</p>}
-              <ul className="moves">
-                {pokemon.moves.map((move) => (
-                  <li key={move}>{displayName(move)}</li>
-                ))}
-              </ul>
-            </button>
-          );
-        })}
-      </div>
+      <TeamView
+        team={team}
+        selectedSlot={selectable ? lead : null}
+        onSelect={selectable ? setLead : undefined}
+        disabled={starting}
+      />
       {!sessionEnded && (
         <button
           type="button"
@@ -75,6 +58,10 @@ export default function MainScreen({
           {starting ? "Starting..." : "Start New Game"}
         </button>
       )}
+      <details className="red-team">
+        <summary className="red-team-summary">Red's team</summary>
+        <TeamView team={redTeam} />
+      </details>
     </section>
   );
 }

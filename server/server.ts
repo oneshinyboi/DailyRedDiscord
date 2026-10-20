@@ -10,6 +10,7 @@ import type {
 } from "@dailyred/shared";
 import { isValidTimeZone, todayInTimeZone } from "./battle/seed.js";
 import { dailyPreview } from "./battle/teamgen.js";
+import { RED_TEAM } from "./battle/red.js";
 import {
   createSession,
   getDailySession,
@@ -41,6 +42,7 @@ app.post("/api/battle/start", (req, res) => {
       date: session.date,
       phase: session.phase,
       team: session.playerTeam,
+      redTeam: RED_TEAM,
       ended: session.ended,
       winner: session.winner,
     };
@@ -50,6 +52,7 @@ app.post("/api/battle/start", (req, res) => {
   const preview: StartResponse = {
     battleId: null,
     phase: "preview",
+    redTeam: RED_TEAM,
     ...dailyPreview(timeZone),
   };
   res.json(preview);

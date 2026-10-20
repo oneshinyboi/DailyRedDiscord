@@ -71,12 +71,19 @@ export interface BattleSnapshot {
 export type ChoiceResponse = BattleSnapshot & { error?: string };
 
 export type StartResponse =
-  | { battleId: null; phase: "preview"; date: string; team: PokemonSet[] }
+  | {
+      battleId: null;
+      phase: "preview";
+      date: string;
+      team: PokemonSet[];
+      redTeam: PokemonSet[];
+    }
   | {
       battleId: string;
       date: string;
       phase: BattlePhase;
       team: PokemonSet[];
+      redTeam: PokemonSet[];
       ended: boolean;
       winner: string | null;
     };

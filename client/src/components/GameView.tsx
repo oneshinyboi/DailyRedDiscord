@@ -5,21 +5,51 @@ import type { LogEntry } from "../lib/format";
 import type {
   ChoiceRequest,
   GameData,
+  PokemonSet,
   PokemonSwitchRequestData,
 } from "../lib/types";
+
+const CHOICE_ITEMS = new Set(["choice band", "choice specs", "choice scarf"]);
+
+function choiceItemOf(
+  request: ChoiceRequest | null,
+  team: PokemonSet[]
+): string | null {
+  if (request === null) return null;
+  const index = request.side.pokemon.findIndex((mon) => mon.active);
+  if (index === -1) return null;
+  const item = team[index]?.item;
+  if (item === undefined || item === "") return null;
+  return CHOICE_ITEMS.has(item.toLowerCase()) ? item : null;
+}
 
 interface GameViewProps {
   token: string;
   username: string;
   data: GameData;
   note: string | null;
+  onEnded: (data: GameData) => void;
 }
 
-export default function GameView({ token, username, data, note }: GameViewProps) {
+export default function GameView({
+  token,
+  username,
+  data,
+  note,
+  onEnded,
+}: GameViewProps) {
   const [state, setState] = useState<GameData>(data);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const notifiedRef = useRef(false);
   const logRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (state.ended && !notifiedRef.current) {
+      notifiedRef.current = true;
+      onEnded(state);
+    }
+  }, [state, onEnded]);
 
   const log = useMemo<LogEntry[]>(
     () =>
@@ -107,11 +137,12 @@ export default function GameView({ token, username, data, note }: GameViewProps)
           )}
         </div>
         <div className="side-panel">
-          <TeamStatus request={state.request} />
+          <TeamStatus request={state.request} team={state.team} />
           <Controls
             request={state.request}
             busy={busy}
             ended={state.ended}
+            choiceItem={choiceItemOf(state.request, state.team)}
             onChoose={choose}
           />
         </div>
@@ -126,16 +157,27 @@ function statusClass(mon: PokemonSwitchRequestData): string {
   return "";
 }
 
-function TeamStatus({ request }: { request: ChoiceRequest | null }) {
+function TeamStatus({
+  request,
+  team,
+}: {
+  request: ChoiceRequest | null;
+  team: PokemonSet[];
+}) {
   if (request === null) return null;
   return (
     <>
       <h2>Your team</h2>
       <ul className="team-status">
-        {request.side.pokemon.map((mon) => (
+        {request.side.pokemon.map((mon, index) => (
           <li key={mon.ident} className={statusClass(mon)}>
             <span>{identName(mon.ident)}</span>
-            <span className="condition">{mon.condition}</span>
+            <span className="mon-meta">
+              {team[index]?.item && (
+                <span className="item">{team[index].item}</span>
+              )}
+              <span className="condition">{mon.condition}</span>
+            </span>
           </li>
         ))}
       </ul>
@@ -147,10 +189,17 @@ interface ControlsProps {
   request: ChoiceRequest | null;
   busy: boolean;
   ended: boolean;
+  choiceItem: string | null;
   onChoose: (choice: string) => void;
 }
 
-function Controls({ request, busy, ended, onChoose }: ControlsProps) {
+function Controls({
+  request,
+  busy,
+  ended,
+  choiceItem,
+  onChoose,
+}: ControlsProps) {
   if (ended) {
     return (
       <>
@@ -231,6 +280,15 @@ function Controls({ request, busy, ended, onChoose }: ControlsProps) {
           const reason =
             typeof move.disabled === "string" ? move.disabled : undefined;
           const disabled = move.disabled !== undefined && move.disabled !== false;
+          let note = "";
+          if (disabled) {
+            if (reason !== undefined) note = reason;
+            else if (move.pp === 0) note = "Out of PP";
+            else if (choiceItem !== null) note = `Locked by ${choiceItem}`;
+            else note = "Disabled";
+          } else if (typeof move.pp === "number") {
+            note = `${move.pp}/${move.maxpp ?? move.pp} PP`;
+          }
           return (
             <button
               type="button"
@@ -240,9 +298,7 @@ function Controls({ request, busy, ended, onChoose }: ControlsProps) {
               onClick={() => onChoose(`move ${i + 1}`)}
             >
               {move.move}
-              {typeof move.pp === "number" && (
-                <span className="pp">{` ${move.pp}/${move.maxpp ?? move.pp} PP`}</span>
-              )}
+              {note !== "" && <span className="pp">{note}</span>}
             </button>
           );
         })}

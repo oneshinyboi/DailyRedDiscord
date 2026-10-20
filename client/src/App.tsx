@@ -3,6 +3,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./App.css";
 import GameView from "./components/GameView";
 import MainScreen from "./components/MainScreen";
+import ResultsScreen from "./components/ResultsScreen";
 import { beginBattle, errorMessage, fetchBattle, fetchStart } from "./lib/api";
 import { getTimeZone, localDate } from "./lib/date";
 import type {
@@ -121,11 +122,13 @@ type Screen =
       kind: "main";
       date: string;
       team: PokemonSet[];
+      redTeam: PokemonSet[];
       sessionEnded: boolean;
       winner: string | null;
       note: string | null;
     }
-  | { kind: "game"; data: GameData; note: string | null };
+  | { kind: "game"; data: GameData; note: string | null }
+  | { kind: "results"; data: GameData };
 
 function App() {
   const [screen, setScreen] = useState<Screen>({
@@ -147,6 +150,7 @@ function App() {
         kind: "main",
         date: start.date,
         team: start.team,
+        redTeam: start.redTeam,
         sessionEnded: false,
         winner: null,
         note,
@@ -154,14 +158,13 @@ function App() {
       return;
     }
     if (start.phase === "ended") {
-      setScreen({
-        kind: "main",
-        date: start.date,
-        team: start.team,
-        sessionEnded: true,
-        winner: start.winner,
-        note,
-      });
+      fetchBattle(accessToken, start.battleId)
+        .then((history) =>
+          setScreen({ kind: "results", data: toGameData(history) })
+        )
+        .catch((err: unknown) =>
+          setScreen({ kind: "error", message: errorMessage(err) })
+        );
       return;
     }
     fetchBattle(accessToken, start.battleId)
@@ -223,7 +226,7 @@ function App() {
         const history = await fetchBattle(token, begun.battleId);
         data = toGameData(history);
       }
-      setScreen({ kind: "game", data, note });
+      setScreen(data.ended ? { kind: "results", data } : { kind: "game", data, note });
     };
     run()
       .catch((err: unknown) =>
@@ -245,6 +248,7 @@ function App() {
         <MainScreen
           date={screen.date}
           team={screen.team}
+          redTeam={screen.redTeam}
           sessionEnded={screen.sessionEnded}
           winner={screen.winner}
           note={screen.note}
@@ -259,8 +263,10 @@ function App() {
           username={username}
           data={screen.data}
           note={screen.note}
+          onEnded={(data) => setScreen({ kind: "results", data })}
         />
       )}
+      {screen.kind === "results" && <ResultsScreen data={screen.data} />}
     </main>
   );
 }
