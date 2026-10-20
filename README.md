@@ -1,8 +1,14 @@
+<p align="center">
+  <img src="client/public/logo.png" alt="DailyRedDiscord logo" width="128" height="128">
+</p>
+
 # DailyRedDiscord
 
 A Discord Activity that simulates a Pokemon battle against Red, in the style of
 [daily-red.com](https://daily-red.com), powered by
 [pokemon-showdown](https://github.com/smogon/pokemon-showdown).
+
+![Choosing a lead Pokemon against Red's Pikachu](docs/screenshot.png)
 
 ## Structure
 
