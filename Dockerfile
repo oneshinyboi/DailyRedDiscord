@@ -16,10 +16,30 @@ ARG VITE_DISCORD_CLIENT_ID
 ENV VITE_DISCORD_CLIENT_ID=$VITE_DISCORD_CLIENT_ID
 RUN npm run build
 
+# ---- red's brain: Foul Play + poke-engine (Rust, built for gen 3) ----
+FROM node:22-slim AS redbot-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-venv git curl ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH=/root/.cargo/bin:$PATH
+WORKDIR /app/ai
+COPY ai/setup.sh ai/requirements.txt ./
+RUN ./setup.sh && rm -rf foul-play/.git foul-play/tests
+
 # ---- runtime: server production dependencies + built output only ----
 FROM node:22-slim
 ENV NODE_ENV=production
 WORKDIR /app
+
+# Red is played by a Python process (see ai/redbot.py), same python as the build stage.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=redbot-build /app/ai /app/ai
+COPY ai/redbot.py /app/ai/redbot.py
+# Foul Play creates its cache directories on import
+RUN mkdir -p /app/ai/foul-play/fp/data/smogon_stats_cache \
+    && chown -R node:node /app/ai/foul-play/fp/data
 
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/

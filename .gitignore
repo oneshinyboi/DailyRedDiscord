@@ -28,3 +28,8 @@ server/data
 *.njsproj
 *.sln
 *.sw?
+
+# Red AI (Foul Play checkout and venv are created by ai/setup.sh)
+ai/foul-play
+ai/venv
+__pycache__

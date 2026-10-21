@@ -14,6 +14,7 @@ import type {
 } from "@dailyred/shared";
 import { RED_TEAM } from "./red.js";
 import { dailySeedsForDate, DailySeeds, todayInTimeZone } from "./seed.js";
+import { foulPlayAvailable, RedPlayer } from "./foulplay.js";
 import { generateDailyTeam } from "./teamgen.js";
 import * as store from "./store.js";
 
@@ -24,6 +25,19 @@ const { RandomPlayerAI } = randomPlayerAiModule;
 const FORMAT = "gen3customgame";
 const PLAYER_NAME = "Challenger";
 const CHOICE_RE = /^(move|switch|team|pass|auto)( |$)/;
+
+/** Who plays Red in new battles: RED_AI if set, else Foul Play whenever it is installed. */
+function aiForNewBattles(): store.RedAi {
+  const wanted = process.env.RED_AI;
+  if (wanted === "random" || wanted === "foulplay") return wanted;
+  return foulPlayAvailable() ? "foulplay" : "random";
+}
+
+/** Today's difficulty from the seed, unless RED_DIFFICULTY (0-1) pins it. */
+function redDifficulty(seeds: DailySeeds): number {
+  const pinned = Number.parseFloat(process.env.RED_DIFFICULTY ?? "");
+  return Number.isFinite(pinned) ? Math.min(1, Math.max(0, pinned)) : seeds.difficulty;
+}
 
 function isWaitRequest(request: ChoiceRequest | null): boolean {
   return request !== null && "wait" in request && request.wait === true;
@@ -36,8 +50,9 @@ function isWaitRequest(request: ChoiceRequest | null): boolean {
  * The engine runs entirely in this process. The p1 stream carries exactly
  * what the challenger is allowed to see (fog-of-war filtered protocol lines
  * plus their private |request|/|error| updates); Red is driven by an AI
- * attached to the p2 stream. Deterministic end to end for a given
- * (date, timezone) seed.
+ * attached to the p2 stream. The team, battle RNG and Red's difficulty come
+ * from the daily seed. Red's own choices are stored as he makes them, so a
+ * battle can be rebuilt without asking the (non-deterministic) bot again.
  */
 export class BattleSession {
   readonly id: string;
@@ -47,7 +62,11 @@ export class BattleSession {
   readonly date: string;
   readonly playerTeam: PokemonSet[];
 
+  /** Which AI plays Red; fixed when the battle begins. */
+  readonly ai: store.RedAi;
+
   private stream?: InstanceType<typeof BattleStream>;
+  private red?: RedPlayer;
   private seeds: DailySeeds;
   private pendingLines: string[] = [];
   private fullLog: string[] = [];
@@ -77,6 +96,8 @@ export class BattleSession {
    * `opts` is for rebuilding a stored session: its id and date are reused
    * (seeds derive from the stored date, not today), and a `frozen` session is
    * one that already ended, so it only carries its final log and no engine.
+   * `ai` and `aiChoices` restore the AI that began the battle and the choices
+   * it already made.
    */
   constructor(
     ownerId: string,
@@ -85,6 +106,8 @@ export class BattleSession {
     opts: {
       id?: string;
       date?: string;
+      ai?: store.RedAi;
+      aiChoices?: string[];
       frozen?: { winner: string | null; log: string[] };
     } = {}
   ) {
@@ -93,6 +116,7 @@ export class BattleSession {
     }
     this.seeds = dailySeedsForDate(opts.date ?? todayInTimeZone(timeZone));
     this.id = opts.id ?? randomUUID();
+    this.ai = opts.ai ?? aiForNewBattles();
     this.ownerId = ownerId;
     this.date = this.seeds.date;
     this.playerTeam = generateDailyTeam(this.seeds.teamSeed);
@@ -109,8 +133,19 @@ export class BattleSession {
 
     this.stream = new BattleStream();
     const streams = getPlayerStreams(this.stream);
-    const ai = new RandomPlayerAI(streams.p2, { seed: this.seeds.aiSeed });
-    void ai.start().catch(() => this.destroy());
+    if (this.ai === "foulplay") {
+      this.red = new RedPlayer(streams.p2, {
+        difficulty: redDifficulty(this.seeds),
+        seed: Number(this.seeds.aiSeed.split(",")[0]),
+        replay: opts.aiChoices ?? [],
+        record: (choice) => store.appendAiChoice(this.id, choice),
+        retract: () => store.popAiChoice(this.id),
+      });
+      void this.red.start().catch(() => this.destroy());
+    } else {
+      const ai = new RandomPlayerAI(streams.p2, { seed: this.seeds.aiSeed });
+      void ai.start().catch(() => this.destroy());
+    }
 
     this.pump(streams.p1);
     this.drain(streams.omniscient);
@@ -276,19 +311,23 @@ export class BattleSession {
   /**
    * Rebuilds a stored session. An ended one is restored from its saved log;
    * an active one has its accepted choices replayed into a fresh engine,
-   * which is deterministic because the battle and Red's AI are seeded.
+   * which is deterministic because the battle is seeded and Red's choices are
+   * either stored or (for the original random AI) seeded.
    */
   static async restore(rec: store.SessionRecord): Promise<BattleSession> {
     if (rec.ended) {
       return new BattleSession(rec.ownerId, rec.timeZone, rec.leadSlot, {
         id: rec.id,
         date: rec.date,
+        ai: rec.ai,
         frozen: { winner: rec.winner, log: rec.log ?? [] },
       });
     }
     const session = new BattleSession(rec.ownerId, rec.timeZone, rec.leadSlot, {
       id: rec.id,
       date: rec.date,
+      ai: rec.ai,
+      aiChoices: rec.aiChoices,
     });
     session.replaying = true;
     try {
@@ -345,6 +384,7 @@ export class BattleSession {
     this.dead = true;
     this.ended = true;
     this.bump();
+    this.red?.destroy();
     void this.stream?.writeEnd().catch(() => {});
   }
 }
@@ -421,7 +461,7 @@ export async function beginSession(
 
   const session = new BattleSession(ownerId, timeZone, leadSlot, { date });
   try {
-    store.insertSession({ id: session.id, ownerId, date, timeZone, leadSlot });
+    store.insertSession({ id: session.id, ownerId, date, timeZone, leadSlot, ai: session.ai });
   } catch (err) {
     session.destroy();
     throw err;
@@ -459,6 +499,9 @@ export function initSessions(): void {
     );
   }
   store.setMeta("showdown_version", version);
+  console.log(
+    `Red plays with ${aiForNewBattles() === "foulplay" ? "Foul Play" : "the random AI"} in new battles`
+  );
   idleMs = (Number(process.env.SESSION_IDLE_MINUTES) || 30) * 60_000;
   sweeper = setInterval(dropIdleSessions, Math.min(60_000, idleMs));
   sweeper.unref();

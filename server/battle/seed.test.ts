@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   dailySeedsForDate,
+  MAX_DIFFICULTY,
+  MIN_DIFFICULTY,
   isValidTimeZone,
   previousDay,
   seedFromString,
@@ -30,6 +32,21 @@ describe("dailySeedsForDate", () => {
   it("uses a distinct seed for team, battle and AI", () => {
     const { teamSeed, battleSeed, aiSeed } = dailySeedsForDate("2026-01-01");
     expect(new Set([teamSeed, battleSeed, aiSeed]).size).toBe(3);
+  });
+});
+
+describe("daily difficulty", () => {
+  it("is stable for a date and stays within the configured range", () => {
+    expect(dailySeedsForDate("2026-01-01").difficulty).toBe(
+      dailySeedsForDate("2026-01-01").difficulty
+    );
+    const days = Array.from({ length: 365 }, (_, i) => {
+      const date = new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10);
+      return dailySeedsForDate(date).difficulty;
+    });
+    expect(Math.min(...days)).toBeGreaterThanOrEqual(MIN_DIFFICULTY);
+    expect(Math.max(...days)).toBeLessThanOrEqual(MAX_DIFFICULTY);
+    expect(new Set(days.map((d) => d.toFixed(2))).size).toBeGreaterThan(20);
   });
 });
 

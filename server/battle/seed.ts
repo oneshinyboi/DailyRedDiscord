@@ -45,6 +45,13 @@ export function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
+/**
+ * Red's strength ranges over [MIN_DIFFICULTY, MAX_DIFFICULTY] by day (see
+ * ai/redbot.py: 0 plays near random, 1 is full-strength Foul Play).
+ */
+export const MIN_DIFFICULTY = 0.75;
+export const MAX_DIFFICULTY = 1;
+
 export interface DailySeeds {
   /** Calendar date the seeds are derived from (YYYY-MM-DD in the user's tz) */
   date: string;
@@ -52,13 +59,15 @@ export interface DailySeeds {
   teamSeed: PRNGSeed;
   /** Seed for the battle RNG itself */
   battleSeed: PRNGSeed;
-  /** Seed for Red's AI */
+  /** Seed for the original random AI (and Foul Play's move sampling) */
   aiSeed: PRNGSeed;
+  /** How well Red plays today, from MIN_DIFFICULTY to MAX_DIFFICULTY */
+  difficulty: number;
 }
 
 /**
  * Derives the shared daily seeds: every user in the same timezone on the same
- * date faces the identical team, battle RNG, and Red AI sequence.
+ * date faces the identical team, battle RNG, and Red difficulty.
  */
 export function dailySeeds(timeZone: string): DailySeeds {
   return dailySeedsForDate(todayInTimeZone(timeZone));
@@ -73,5 +82,6 @@ export function dailySeedsForDate(date: string): DailySeeds {
     teamSeed: rotate([a, b, c, d]),
     battleSeed: rotate([b, c, d, a]),
     aiSeed: rotate([c, d, a, b]),
+    difficulty: MIN_DIFFICULTY + (d / 2 ** 32) * (MAX_DIFFICULTY - MIN_DIFFICULTY),
   };
 }

@@ -9,7 +9,7 @@
     "register-commands": "tsc && node dist/scripts/registerCommands.js",
     "dev": "tsc --watch & node --watch dist/server.js"
   },
-  "license": "ISC",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@dailyred/shared": "*",
     "dotenv": "^17.0.0",

@@ -16,7 +16,17 @@ export interface SessionRecord {
   log: string[] | null;
   /** Accepted choices in order; replayed to rebuild an active battle. */
   choices: string[];
+  /** Which AI plays Red; fixed when the battle begins. */
+  ai: RedAi;
+  /** Red's own choices in order (foulplay battles only); replayed, never re-decided. */
+  aiChoices: string[];
 }
+
+/**
+ * "random" is the original seeded RandomPlayerAI, kept so battles begun
+ * before Foul Play existed still replay identically.
+ */
+export type RedAi = "random" | "foulplay";
 
 /** Players with fewer finished games than this rank after everyone else. */
 export const MIN_RANKED_GAMES = 3;
@@ -68,10 +78,17 @@ export function initStore(): void {
       created_at INTEGER NOT NULL,
       ended INTEGER NOT NULL DEFAULT 0,
       winner TEXT,
-      log TEXT
+      log TEXT,
+      ai TEXT NOT NULL DEFAULT 'random'
     );
     CREATE UNIQUE INDEX IF NOT EXISTS sessions_owner_date ON sessions (owner_id, date);
     CREATE TABLE IF NOT EXISTS choices (
+      session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      choice TEXT NOT NULL,
+      PRIMARY KEY (session_id, seq)
+    );
+    CREATE TABLE IF NOT EXISTS ai_choices (
       session_id TEXT NOT NULL,
       seq INTEGER NOT NULL,
       choice TEXT NOT NULL,
@@ -100,11 +117,24 @@ export function initStore(): void {
     );
   `);
   migrateLegacyStreaks();
+  addAiColumn();
   stmts = {
     insertSession: db.prepare(
-      `INSERT INTO sessions (id, owner_id, date, time_zone, lead_slot, created_at)
-       VALUES ($id, $ownerId, $date, $timeZone, $leadSlot, $createdAt)`
+      `INSERT INTO sessions (id, owner_id, date, time_zone, lead_slot, created_at, ai)
+       VALUES ($id, $ownerId, $date, $timeZone, $leadSlot, $createdAt, $ai)`
     ),
+    appendAiChoice: db.prepare(
+      `INSERT INTO ai_choices (session_id, seq, choice)
+       SELECT $id, COALESCE(MAX(seq), -1) + 1, $choice FROM ai_choices WHERE session_id = $id`
+    ),
+    popAiChoice: db.prepare(
+      `DELETE FROM ai_choices WHERE session_id = $id
+       AND seq = (SELECT MAX(seq) FROM ai_choices WHERE session_id = $id)`
+    ),
+    aiChoicesFor: db.prepare(
+      `SELECT choice FROM ai_choices WHERE session_id = $id ORDER BY seq`
+    ),
+    deleteAiChoices: db.prepare(`DELETE FROM ai_choices WHERE session_id = $id`),
     appendChoice: db.prepare(
       `INSERT INTO choices (session_id, seq, choice)
        SELECT $id, COALESCE(MAX(seq), -1) + 1, $choice FROM choices WHERE session_id = $id`
@@ -161,6 +191,13 @@ export function initStore(): void {
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`
     ),
   };
+}
+
+/** Databases from before Foul Play have no `ai` column; their battles are random-AI ones. */
+function addAiColumn(): void {
+  const columns = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[];
+  if (columns.some((c) => c.name === "ai")) return;
+  db.exec(`ALTER TABLE sessions ADD COLUMN ai TEXT NOT NULL DEFAULT 'random'`);
 }
 
 /**
@@ -227,9 +264,10 @@ export function insertSession(rec: {
   date: string;
   timeZone: string;
   leadSlot: number;
+  ai?: RedAi;
 }): void {
   transaction(() => {
-    stmts.insertSession.run({ ...rec, createdAt: Date.now() });
+    stmts.insertSession.run({ ...rec, ai: rec.ai ?? "random", createdAt: Date.now() });
     const row = readPlayer(rec.ownerId);
     if (row.last_played_date === rec.date) return;
     const play = row.last_played_date === previousDay(rec.date) ? row.play_streak + 1 : 1;
@@ -244,6 +282,15 @@ export function insertSession(rec: {
 
 export function appendChoice(id: string, choice: string): void {
   stmts.appendChoice.run({ id, choice });
+}
+
+export function appendAiChoice(id: string, choice: string): void {
+  stmts.appendAiChoice.run({ id, choice });
+}
+
+/** Forgets Red's latest choice, for one the engine turned out to reject. */
+export function popAiChoice(id: string): void {
+  stmts.popAiChoice.run({ id });
 }
 
 /**
@@ -289,12 +336,16 @@ export function finishSession(rec: {
 export function deleteSession(id: string): void {
   transaction(() => {
     stmts.deleteChoices.run({ id });
+    stmts.deleteAiChoices.run({ id });
     stmts.deleteSession.run({ id });
   });
 }
 
 function toRecord(row: Record<string, any>): SessionRecord {
   const choices = (stmts.choicesFor.all({ id: row.id }) as { choice: string }[]).map(
+    (c) => c.choice
+  );
+  const aiChoices = (stmts.aiChoicesFor.all({ id: row.id }) as { choice: string }[]).map(
     (c) => c.choice
   );
   return {
@@ -307,6 +358,8 @@ function toRecord(row: Record<string, any>): SessionRecord {
     winner: row.winner,
     log: row.log ? JSON.parse(row.log) : null,
     choices,
+    ai: row.ai === "foulplay" ? "foulplay" : "random",
+    aiChoices,
   };
 }
 
@@ -331,6 +384,7 @@ export function evictOldSessions(ownerId: string, keep: number): string[] {
     );
     for (const id of ids) {
       stmts.deleteChoices.run({ id });
+      stmts.deleteAiChoices.run({ id });
       stmts.deleteSession.run({ id });
     }
     return ids;

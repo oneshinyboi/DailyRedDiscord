@@ -1,6 +1,15 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  appendAiChoice,
+  appendChoice,
   closeStore,
+  deleteSession,
+  findSessionById,
+  popAiChoice,
   finishSession,
   getStreak,
   guildLeaderboard,
@@ -95,5 +104,43 @@ describe("guildLeaderboard", () => {
       "veteran",
       "newbie",
     ]);
+  });
+});
+
+describe("Red's AI", () => {
+  it("stores which AI began a battle and the choices it made", () => {
+    insertSession({ id: "a", ownerId: "u1", date: "2026-01-01", timeZone: "UTC", leadSlot: 1, ai: "foulplay" });
+    appendAiChoice("a", "move 1");
+    appendAiChoice("a", "switch 3");
+    appendAiChoice("a", "move 9");
+    popAiChoice("a");
+    appendChoice("a", "move 2");
+    expect(findSessionById("a")).toMatchObject({
+      ai: "foulplay",
+      aiChoices: ["move 1", "switch 3"],
+      choices: ["move 2"],
+    });
+    deleteSession("a");
+    insertSession({ id: "a", ownerId: "u1", date: "2026-01-01", timeZone: "UTC", leadSlot: 1 });
+    expect(findSessionById("a")).toMatchObject({ ai: "random", aiChoices: [] });
+  });
+
+  it("treats battles stored before Foul Play as random-AI battles", () => {
+    closeStore();
+    const path = join(mkdtempSync(join(tmpdir(), "dailyred-")), "old.sqlite");
+    const old = new DatabaseSync(path);
+    old.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, date TEXT NOT NULL,
+        time_zone TEXT NOT NULL, lead_slot INTEGER NOT NULL, created_at INTEGER NOT NULL,
+        ended INTEGER NOT NULL DEFAULT 0, winner TEXT, log TEXT
+      );
+      INSERT INTO sessions (id, owner_id, date, time_zone, lead_slot, created_at)
+        VALUES ('old', 'u1', '2026-01-01', 'UTC', 2, 0);
+    `);
+    old.close();
+    process.env.DB_PATH = path;
+    initStore();
+    expect(findSessionById("old")).toMatchObject({ ai: "random", aiChoices: [], leadSlot: 2 });
   });
 });

@@ -8,3 +8,6 @@
 .env.*
 server/data
 *.log
+ai/foul-play
+ai/venv
+**/__pycache__
