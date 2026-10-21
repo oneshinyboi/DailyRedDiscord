@@ -4,13 +4,14 @@ const maxIvs = { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 };
 
 /**
  * Red's team - canon GSC Mt. Silver set (Pikachu, Espeon, Snorlax, Venusaur,
- * Charizard, Blastoise) with his in-game movesets, scaled to level 100.
+ * Charizard, Blastoise) with his in-game movesets, scaled to level 100. The
+ * held items are not canon; they are the usual gen 3 picks for each Pokemon.
  */
 export const RED_TEAM: PokemonSet[] = [
   {
     name: "Pikachu",
     species: "pikachu",
-    item: "",
+    item: "Light Ball",
     ability: "Static",
     gender: "M",
     nature: "Serious",
@@ -22,7 +23,7 @@ export const RED_TEAM: PokemonSet[] = [
   {
     name: "Espeon",
     species: "espeon",
-    item: "",
+    item: "Twisted Spoon",
     ability: "Synchronize",
     gender: "M",
     nature: "Serious",
@@ -34,7 +35,7 @@ export const RED_TEAM: PokemonSet[] = [
   {
     name: "Snorlax",
     species: "snorlax",
-    item: "",
+    item: "Leftovers",
     ability: "Immunity",
     gender: "M",
     nature: "Serious",
@@ -46,7 +47,7 @@ export const RED_TEAM: PokemonSet[] = [
   {
     name: "Venusaur",
     species: "venusaur",
-    item: "",
+    item: "Miracle Seed",
     ability: "Overgrow",
     gender: "M",
     nature: "Serious",
@@ -58,7 +59,7 @@ export const RED_TEAM: PokemonSet[] = [
   {
     name: "Charizard",
     species: "charizard",
-    item: "",
+    item: "Charcoal",
     ability: "Blaze",
     gender: "M",
     nature: "Serious",
@@ -70,7 +71,7 @@ export const RED_TEAM: PokemonSet[] = [
   {
     name: "Blastoise",
     species: "blastoise",
-    item: "",
+    item: "Mystic Water",
     ability: "Torrent",
     gender: "M",
     nature: "Serious",
